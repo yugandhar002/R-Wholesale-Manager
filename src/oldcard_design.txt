@@ -1,0 +1,202 @@
+
+old design
+import React, { useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, TextInput, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { COLORS, FONTS, RADIUS, SPACING, SHADOWS } from '../theme';
+
+const ProductCard = ({
+  product,
+  onAdd,
+  onRemove,
+  onUpdateQuantity,
+  quantityInCart = 0
+}) => {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const onPressIn = () => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 40 }).start();
+  const onPressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 40 }).start();
+
+  const inCart = quantityInCart > 0;
+
+  return (
+    <Animated.View style={[styles.wrapper, { transform: [{ scale }] }]}>
+      <TouchableOpacity
+        onPress={() => onAdd(product)}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        activeOpacity={1}
+        style={[styles.card, inCart && styles.cardActive]}
+      >
+        {/* Category pill */}
+        <View style={styles.categoryPill}>
+          <Text style={styles.categoryText} numberOfLines={1}>{product.category}</Text>
+        </View>
+
+        {/* Product name */}
+        <Text style={styles.name} numberOfLines={2}>{product.name}</Text>
+
+        {/* Rate + MRP row */}
+        <View style={styles.rateRow}>
+          <View>
+            {!!product.mrp && product.mrp > product.wholesale_rate && (
+              <Text style={styles.mrpText}>MRP: ₹{product.mrp}</Text>
+            )}
+            <View style={styles.priceRow}>
+              <Text style={styles.rate}>₹{product.wholesale_rate}</Text>
+              <Text style={styles.unit}>/ {product.unit}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Add button / quantity controls */}
+        {inCart ? (
+          <View style={styles.qtyContainer}>
+            <TouchableOpacity
+              onPress={() => onRemove(product.id)}
+              style={styles.qtyBtn}
+            >
+              <Ionicons name="remove" size={14} color={COLORS.primary} />
+            </TouchableOpacity>
+
+            <TextInput
+              style={styles.qtyInput}
+              value={String(quantityInCart)}
+              onChangeText={(val) => {
+                const num = parseInt(val.replace(/[^0-9]/g, '')) || 0;
+                onUpdateQuantity(product.id, num);
+              }}
+              keyboardType="numeric"
+              maxLength={4}
+              selectTextOnFocus
+            />
+
+            <TouchableOpacity
+              onPress={() => onAdd(product)}
+              style={styles.qtyBtn}
+            >
+              <Ionicons name="add" size={14} color={COLORS.primary} />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity onPress={() => onAdd(product)} style={styles.addBtn}>
+            <Ionicons name="add" size={18} color={COLORS.primary} />
+          </TouchableOpacity>
+        )}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
+
+export default React.memo(ProductCard);
+
+const styles = StyleSheet.create({
+  wrapper: {
+    width: '48%',
+    marginBottom: 12,
+  },
+  card: {
+    backgroundColor: COLORS.glassBg,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1.5,
+    borderColor: COLORS.glassBorder,
+    padding: 14,
+    minHeight: 130,
+    ...SHADOWS.card,
+  },
+  cardActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#F3F4F6',
+  },
+  categoryPill: {
+    backgroundColor: COLORS.backgroundCardDark,
+    borderRadius: RADIUS.full,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+  },
+  categoryText: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.primary,
+    fontWeight: FONTS.weights.semibold,
+  },
+  name: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.textDark,
+    fontWeight: FONTS.weights.bold,
+    flex: 1,
+    marginBottom: 6,
+    lineHeight: 18,
+  },
+  rateRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginTop: 'auto',
+  },
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  mrpText: {
+    fontSize: 10,
+    color: COLORS.textLight,
+    fontWeight: FONTS.weights.medium,
+    marginBottom: -2,
+  },
+  rate: {
+    fontSize: FONTS.sizes.lg,
+    color: COLORS.primary,
+    fontWeight: FONTS.weights.heavy,
+  },
+  unit: {
+    fontSize: 10,
+    color: COLORS.textLight,
+    marginLeft: 2,
+  },
+  addBtn: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    width: 32,
+    height: 32,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.white,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.subtle,
+  },
+  qtyContainer: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.full,
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+    padding: 2,
+    ...SHADOWS.subtle,
+  },
+  qtyBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: RADIUS.full,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qtyInput: {
+    minWidth: 30,
+    textAlign: 'center',
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.primary,
+    paddingVertical: Platform.OS === 'ios' ? 4 : 0,
+    paddingHorizontal: 4,
+  },
+});

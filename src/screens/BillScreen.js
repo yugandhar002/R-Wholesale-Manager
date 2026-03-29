@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, SafeAreaView,
-  StatusBar, TouchableOpacity, TextInput, Alert, Platform,
+  View, Text, StyleSheet, ScrollView,
+  StatusBar, TouchableOpacity, TextInput, Alert, Platform, Keyboard,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import BillItem from '../components/BillItem';
@@ -29,6 +30,9 @@ export default function BillScreen({ navigation }) {
 
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isFooterVisible, setIsFooterVisible] = useState(false);
+  const [layoutHeight, setLayoutHeight] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
   const isSelectionRef = useRef(false);
 
   useEffect(() => {
@@ -55,6 +59,17 @@ export default function BillScreen({ navigation }) {
     return () => clearTimeout(timeoutId);
   }, [customerName]);
 
+  // Robust visibility check for the footer
+  useEffect(() => {
+    if (contentHeight > 0 && layoutHeight > 0) {
+      // If the entire content fits on the screen (no scrolling needed),
+      // we show the footer immediately so the user can generate the bill.
+      if (contentHeight <= layoutHeight + 20) {
+        setIsFooterVisible(true);
+      }
+    }
+  }, [contentHeight, layoutHeight, items.length]);
+
   const handleUpdateQuantity = useCallback((id, qty) => {
     updateQuantity(id, qty);
   }, [updateQuantity]);
@@ -71,6 +86,7 @@ export default function BillScreen({ navigation }) {
     }
     setSuggestions([]);
     setShowSuggestions(false);
+    Keyboard.dismiss();
   }, [setCustomerName, setCustomerPhone]);
 
   const handleGenerateBill = useCallback(() => {
@@ -78,24 +94,43 @@ export default function BillScreen({ navigation }) {
       Alert.alert('Empty Bill', 'Please add at least one product.');
       return;
     }
-    navigation.navigate('NewBillTab', { screen: 'BillPreview' });
+    // Use 'replace' so BillPreview replaces Bill in the stack.
+    // This prevents Bill from piling up behind BillPreview on every bill creation.
+    navigation.replace('BillPreview');
   }, [items.length, navigation]);
 
   const handleClearBill = () => {
     Alert.alert('Clear Bill', 'Remove all items from this bill?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Clear', style: 'destructive', onPress: () => useBillStore.getState().clearBill() },
+      {
+        text: 'Clear',
+        style: 'destructive',
+        onPress: () => {
+          useBillStore.getState().clearBill();
+          navigation.navigate('SelectProducts');
+        }
+      },
     ]);
   };
 
+  const handleScroll = (event) => {
+    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+    // Show footer once user has scrolled to the bottom (where total payable is)
+    // We add a small buffer (50px) to trigger it slightly before the absolute end
+    const isAtBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 80;
+    if (isAtBottom !== isFooterVisible) {
+      setIsFooterVisible(isAtBottom);
+    }
+  };
+
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="dark-content" />
 
       {/* ── Header ─────────────────────────────────────── */}
       <View style={[
         styles.header,
-        Platform.OS === 'android' && { paddingTop: (StatusBar.currentHeight || 0) + SPACING.md }
+        { backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }
       ]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color={COLORS.primary} />
@@ -108,151 +143,169 @@ export default function BillScreen({ navigation }) {
         )}
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        {/* ── Customer + Discount ─────────────────────── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Customer Details</Text>
-          <View style={{ zIndex: 10 }}>
+      <View style={{ flex: 1 }}>
+        <ScrollView
+          style={styles.scroll}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onMomentumScrollEnd={handleScroll}
+          onScrollEndDrag={handleScroll}
+          onLayout={(e) => setLayoutHeight(e.nativeEvent.layout.height)}
+          onContentSizeChange={(w, h) => setContentHeight(h)}
+        >
+          {/* ── Customer + Discount ─────────────────────── */}
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Customer Details</Text>
+            <View style={{ zIndex: 10 }}>
+              <View style={styles.inputCard}>
+                <Ionicons name="person-outline" size={18} color={COLORS.textLight} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Customer name (optional)"
+                  placeholderTextColor={COLORS.textLight}
+                  value={customerName}
+                  onChangeText={setCustomerName}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                />
+              </View>
+
+              {showSuggestions && (
+                <View style={styles.suggestionsContainer}>
+                  {suggestions.map((item, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={[
+                        styles.suggestionItem,
+                        index !== suggestions.length - 1 && styles.suggestionBorder
+                      ]}
+                      onPress={() => handleSelectCustomer(item)}
+                    >
+                      <View style={styles.suggestionInfo}>
+                        <Text style={styles.suggestionName}>{item.customer_name}</Text>
+                        {item.customer_phone && (
+                          <Text style={styles.suggestionPhone}>{item.customer_phone}</Text>
+                        )}
+                      </View>
+                      <Ionicons name="add-circle-outline" size={20} color={COLORS.primary} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
             <View style={styles.inputCard}>
-              <Ionicons name="person-outline" size={18} color={COLORS.textLight} style={styles.inputIcon} />
+              <Ionicons name="call-outline" size={18} color={COLORS.textLight} style={styles.inputIcon} />
               <TextInput
                 style={styles.textInput}
-                placeholder="Customer name (optional)"
+                placeholder="Phone number (optional)"
                 placeholderTextColor={COLORS.textLight}
-                value={customerName}
-                onChangeText={setCustomerName}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                value={customerPhone}
+                onChangeText={setCustomerPhone}
+                keyboardType="phone-pad"
               />
             </View>
-
-            {showSuggestions && (
-              <View style={styles.suggestionsContainer}>
-                {suggestions.map((item, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={[
-                      styles.suggestionItem,
-                      index !== suggestions.length - 1 && styles.suggestionBorder
-                    ]}
-                    onPress={() => handleSelectCustomer(item)}
-                  >
-                    <View style={styles.suggestionInfo}>
-                      <Text style={styles.suggestionName}>{item.customer_name}</Text>
-                      {item.customer_phone && (
-                        <Text style={styles.suggestionPhone}>{item.customer_phone}</Text>
-                      )}
-                    </View>
-                    <Ionicons name="add-circle-outline" size={20} color={COLORS.primary} />
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </View>
-          <View style={styles.inputCard}>
-            <Ionicons name="call-outline" size={18} color={COLORS.textLight} style={styles.inputIcon} />
-            <TextInput
-              style={styles.textInput}
-              placeholder="Phone number (optional)"
-              placeholderTextColor={COLORS.textLight}
-              value={customerPhone}
-              onChangeText={setCustomerPhone}
-              keyboardType="phone-pad"
-            />
-          </View>
-          <View style={styles.inputCard}>
-            <Ionicons name="pricetag-outline" size={18} color={COLORS.textLight} style={styles.inputIcon} />
-            <Text style={styles.rupeePrefix}>₹</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Discount amount (₹)"
-              placeholderTextColor={COLORS.textLight}
-              value={discount > 0 ? String(discount) : ''}
-              onChangeText={setDiscount}
-              keyboardType="numeric"
-            />
-          </View>
-        </View>
-
-        {/* ── Item List ───────────────────────────────── */}
-        <View style={styles.section}>
-          <View style={styles.itemsHeader}>
-            <Text style={styles.sectionLabel}>
-              Items ({items.length})
-            </Text>
-            <TouchableOpacity
-              onPress={() => navigation.navigate('SelectProducts')}
-              style={styles.addMoreBtn}
-            >
-              <Ionicons name="add" size={14} color={COLORS.primary} />
-              <Text style={styles.addMoreText}>Add more</Text>
-            </TouchableOpacity>
+            <View style={styles.inputCard}>
+              <Ionicons name="pricetag-outline" size={18} color={COLORS.textLight} style={styles.inputIcon} />
+              <Text style={styles.rupeePrefix}>₹</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="Discount amount (₹)"
+                placeholderTextColor={COLORS.textLight}
+                value={discount > 0 ? String(discount) : ''}
+                onChangeText={setDiscount}
+                keyboardType="numeric"
+              />
+            </View>
           </View>
 
-          {items.length === 0 ? (
-            <View style={styles.emptyItems}>
-              <Ionicons name="cube-outline" size={40} color={COLORS.textLight} />
-              <Text style={styles.emptyText}>No items added yet</Text>
-              <GlassButton
-                title="Browse Products"
-                variant="glass"
-                size="sm"
+          {/* ── Item List ───────────────────────────────── */}
+          <View style={styles.section}>
+            <View style={styles.itemsHeader}>
+              <Text style={styles.sectionLabel}>
+                Items ({items.length})
+              </Text>
+              <TouchableOpacity
                 onPress={() => navigation.navigate('SelectProducts')}
-              />
-            </View>
-          ) : (
-            items.map(item => (
-              <BillItem
-                key={item.product.id}
-                item={item}
-                onUpdateQuantity={handleUpdateQuantity}
-                onRemove={handleRemoveItem}
-              />
-            ))
-          )}
-        </View>
-
-        {/* ── Summary ─────────────────────────────────── */}
-        {items.length > 0 && (
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Subtotal</Text>
-              <Text style={styles.summaryValue}>₹{subtotal.toLocaleString('en-IN')}</Text>
-            </View>
-            {discount > 0 && (
-              <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: COLORS.success }]}>Discount</Text>
-                <Text style={[styles.summaryValue, { color: COLORS.success }]}>- ₹{Number(discount).toLocaleString('en-IN')}</Text>
-              </View>
-            )}
-            <View style={styles.divider} />
-            <View style={styles.summaryRow}>
-              <Text style={styles.totalLabel}>Total Payable</Text>
-              <LinearGradient
-                colors={COLORS.gradientPrimary}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.totalBadge}
+                style={styles.addMoreBtn}
               >
-                <Text style={styles.totalAmount}>₹{total.toLocaleString('en-IN')}</Text>
-              </LinearGradient>
+                <Ionicons name="add" size={14} color={COLORS.primary} />
+                <Text style={styles.addMoreText}>Add more</Text>
+              </TouchableOpacity>
             </View>
+
+            {items.length === 0 ? (
+              <View style={styles.emptyItems}>
+                <Ionicons name="cube-outline" size={40} color={COLORS.textLight} />
+                <Text style={styles.emptyText}>No items added yet</Text>
+                <GlassButton
+                  title="Browse Products"
+                  variant="glass"
+                  size="sm"
+                  onPress={() => navigation.navigate('SelectProducts')}
+                />
+              </View>
+            ) : (
+              items.map(item => (
+                <BillItem
+                  key={item.product.id}
+                  item={item}
+                  onUpdateQuantity={handleUpdateQuantity}
+                  onRemove={handleRemoveItem}
+                />
+              ))
+            )}
           </View>
-        )}
 
-        <View style={{ height: 180 }} />
-      </ScrollView>
+          {/* ── Summary ─────────────────────────────────── */}
+          {items.length > 0 && (
+            <View style={styles.summaryCard}>
+              {discount > 0 ? (
+                <>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Subtotal</Text>
+                    <Text style={styles.summaryValue}>₹{subtotal.toLocaleString('en-IN')}</Text>
+                  </View>
+                  <View style={styles.summaryRow}>
+                    <Text style={[styles.summaryLabel, { color: COLORS.success }]}>Discount</Text>
+                    <Text style={[styles.summaryValue, { color: COLORS.success }]}>- ₹{Number(discount).toLocaleString('en-IN')}</Text>
+                  </View>
+                  <View style={styles.divider} />
+                </>
+              ) : null}
+              
+              <View style={[styles.summaryRow, { marginBottom: 0 }]}>
+                <Text style={styles.totalLabel}>Total Payable</Text>
+                <LinearGradient
+                  colors={COLORS.gradientPrimary}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.totalBadge}
+                >
+                  <Text style={styles.totalAmount}>₹{total.toLocaleString('en-IN')}</Text>
+                </LinearGradient>
+              </View>
+            </View>
+          )}
 
-      {/* ── Generate Bill Button ─────────────────────── */}
-      {items.length > 0 && (
-        <View style={styles.footer}>
-          <GlassButton
-            title="Generate Bill →"
-            variant="primary"
-            size="lg"
-            fullWidth
-            onPress={handleGenerateBill}
-          />
-        </View>
+          <View style={{ height: 10 }} />
+        </ScrollView>
+      </View>
+
+      {/* ── Generate Bill Bar ─────────────────────────── */}
+      {items.length > 0 && isFooterVisible && (
+        <TouchableOpacity
+          onPress={handleGenerateBill}
+          style={styles.footerBar}
+          activeOpacity={0.9}
+        >
+          <LinearGradient
+            colors={['rgba(108, 63, 232, 0.85)', 'rgba(0, 210, 255, 0.85)']} // Glass gradient
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.footerGradient}
+          >
+            <Text style={styles.footerText}>Generate Bill →</Text>
+          </LinearGradient>
+        </TouchableOpacity>
       )}
     </SafeAreaView>
   );
@@ -265,8 +318,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.xl,
-    paddingVertical: SPACING.lg,
-    paddingTop: SPACING.xl,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.xs,
   },
   backBtn: {
     width: 40,
@@ -295,7 +348,7 @@ const styles = StyleSheet.create({
   },
   section: {
     paddingHorizontal: SPACING.xl,
-    marginBottom: SPACING.xxl,
+    marginBottom: SPACING.lg,
   },
   sectionLabel: {
     fontSize: FONTS.sizes.md,
@@ -374,8 +427,9 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.lg,
     borderWidth: 1.5,
     borderColor: COLORS.glassBorder,
-    padding: SPACING.xl,
+    padding: SPACING.lg,
     ...SHADOWS.card,
+    marginBottom: SPACING.xl,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -413,17 +467,38 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontWeight: FONTS.weights.heavy,
   },
-  footer: {
-    position: 'absolute',
-    bottom: Platform.OS === 'android' ? 60 : 70,
-    left: 0,
-    right: 0,
-    padding: SPACING.lg,
-    paddingBottom: Platform.OS === 'ios' ? SPACING.xxl : SPACING.xl,
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.05)',
-    ...SHADOWS.strong,
+  footerBar: {
+    width: '100%',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
+  },
+  footerGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.xl,
+    height: 64,
+    borderTopLeftRadius: RADIUS.xl,
+    borderTopRightRadius: RADIUS.xl,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    borderBottomWidth: 0,
+  },
+  footerText: {
+    fontSize: FONTS.sizes.lg,
+    color: COLORS.white,
+    fontWeight: FONTS.weights.bold,
   },
   suggestionsContainer: {
     position: 'absolute',

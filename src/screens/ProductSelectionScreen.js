@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
-  View, Text, StyleSheet, FlatList, SafeAreaView, StatusBar,
-  TouchableOpacity, ActivityIndicator, ScrollView, Platform,
+  View, Text, StyleSheet, FlatList, StatusBar,
+  TouchableOpacity, ActivityIndicator, ScrollView, Platform, KeyboardAvoidingView, Keyboard,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import SearchBar from '../components/SearchBar';
@@ -22,13 +23,28 @@ export default function ProductSelectionScreen({ navigation }) {
 
   const debounceRef = useRef(null);
   const addItem = useBillStore(s => s.addItem);
+  const decrementItem = useBillStore(s => s.decrementItem);
   const updateQuantity = useBillStore(s => s.updateQuantity);
-  const getQuantityInCart = useBillStore(s => s.getQuantityInCart);
-  const itemCount = useBillStore(s => s.getItemCount());
+  // REMOVED itemCount from here to prevent full-screen re-renders!
+
+  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
 
   // Load categories once
   useEffect(() => {
     getCategories().then(({ data }) => { if (data) setCategories(data); });
+
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'android' ? 'keyboardDidShow' : 'keyboardWillShow',
+      () => setKeyboardVisible(true)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'android' ? 'keyboardDidHide' : 'keyboardWillHide',
+      () => setKeyboardVisible(false)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
   }, []);
 
   // Debounced search
@@ -39,16 +55,24 @@ export default function ProductSelectionScreen({ navigation }) {
     setLoading(false);
   }, []);
 
+  const queryRef = useRef(query);
+  const categoryRef = useRef(category);
+
   useEffect(() => {
+    queryRef.current = query;
+    categoryRef.current = category;
+    
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => doSearch(query, category), 300);
     return () => clearTimeout(debounceRef.current);
   }, [query, category, doSearch]);
+
   useFocusEffect(
     useCallback(() => {
       // Refresh list whenever tab is focused to show new products added in other tabs
-      doSearch(query, category);
-    }, [category, doSearch, query])
+      // Using refs to always fetch latest without re-triggering this effect on state changes
+      doSearch(queryRef.current, categoryRef.current);
+    }, [doSearch])
   );
 
   const handleUpdateQuantity = useCallback((id, qty) => {
@@ -60,118 +84,113 @@ export default function ProductSelectionScreen({ navigation }) {
   }, [addItem]);
 
   const handleRemove = useCallback((id) => {
-    const currentQty = getQuantityInCart(id);
-    updateQuantity(id, currentQty - 1);
-  }, [getQuantityInCart, updateQuantity]);
+    decrementItem(id);
+  }, [decrementItem]);
 
   const renderProduct = useCallback(({ item }) => (
     <ProductCard
       product={item}
-      quantityInCart={getQuantityInCart(item.id)}
       onAdd={handleAdd}
       onRemove={handleRemove}
       onUpdateQuantity={handleUpdateQuantity}
     />
-  ), [getQuantityInCart, handleAdd, handleRemove, handleUpdateQuantity]);
+  ), [handleAdd, handleRemove, handleUpdateQuantity]);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="dark-content" />
 
-      {/* ── Header ─────────────────────────────────────────── */}
-      <View
-        style={[
-          styles.header,
-          { backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
-          Platform.OS === 'android' && { paddingTop: (StatusBar.currentHeight || 0) + SPACING.md }
-        ]}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={24} color={COLORS.primary} />
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Select Products</Text>
-          <Text style={styles.headerSub}>{products.length} products found</Text>
-        </View>
-      </View>
-
-      {/* ── Search ─────────────────────────────────────────── */}
-      <View style={styles.searchRow}>
-        <SearchBar
-          value={query}
-          onChangeText={setQuery}
-          onClear={() => setQuery('')}
-          placeholder="Search 1000+ products..."
-        />
-      </View>
-
-      {/* ── Categories ─────────────────────────────────────── */}
-      <View style={styles.categoriesWrapper}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoriesContent}
+        {/* ── Header ─────────────────────────────────────────── */}
+        <View
+          style={[
+            styles.header,
+            { backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }
+          ]}
         >
-          {categories.map(cat => (
-            <CategoryChip
-              key={cat}
-              label={cat}
-              active={category === cat}
-              onPress={() => setCategory(cat)}
-            />
-          ))}
-        </ScrollView>
-      </View>
-
-      {/* ── Product Grid ───────────────────────────────────── */}
-      {loading ? (
-        <View style={styles.loader}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loaderText}>Searching...</Text>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Ionicons name="chevron-back" size={24} color={COLORS.primary} />
+          </TouchableOpacity>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>Select Products</Text>
+            <Text style={styles.headerSub}>{products.length} products found</Text>
+          </View>
         </View>
-      ) : products.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="search-outline" size={52} color={COLORS.textLight} />
-          <Text style={styles.emptyText}>No products found</Text>
-          <Text style={styles.emptySubText}>Try a different keyword or category</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={products}
-          renderItem={renderProduct}
-          keyExtractor={item => item.id}
-          numColumns={2}
-          columnWrapperStyle={styles.row}
-          contentContainerStyle={styles.grid}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        />
-      )}
 
-      {/* ── Floating Bill Bar ──────────────────────────────── */}
-      {itemCount > 0 && (
-        <TouchableOpacity
-          onPress={() => navigation.navigate('Bill')}
-          style={styles.floatingBar}
-          activeOpacity={0.9}
-        >
-          <LinearGradient
-            colors={COLORS.gradientPrimary}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.floatingBarGradient}
+        {/* ── Search ─────────────────────────────────────────── */}
+        <View style={styles.searchRow}>
+          <SearchBar
+            value={query}
+            onChangeText={setQuery}
+            onClear={() => setQuery('')}
+            placeholder="Search 1000+ products..."
+          />
+        </View>
+
+        {/* ── Categories ─────────────────────────────────────── */}
+        <View style={styles.categoriesWrapper}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoriesContent}
           >
-            <View style={styles.floatingLeft}>
-              <Ionicons name="cart" size={22} color={COLORS.white} />
-              <Text style={styles.floatingCount}>{itemCount} item{itemCount > 1 ? 's' : ''} added</Text>
+            {categories.map(cat => (
+              <CategoryChip
+                key={cat}
+                label={cat}
+                active={category === cat}
+                onPress={() => setCategory(cat)}
+              />
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* ── Product List Section ───────────────────────────── */}
+        <View style={{ flex: 1 }}>
+          {loading ? (
+            <View style={styles.loader}>
+              <ActivityIndicator size="large" color={COLORS.primary} />
+              <Text style={styles.loaderText}>Searching...</Text>
             </View>
-            <View style={styles.floatingRight}>
-              <Text style={styles.floatingAction}>View Bill</Text>
-              <Ionicons name="chevron-forward" size={18} color={COLORS.white} />
+          ) : products.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="search-outline" size={52} color={COLORS.textLight} />
+              <Text style={styles.emptyText}>No products found</Text>
+              <Text style={styles.emptySubText}>Try a different keyword or category</Text>
             </View>
-          </LinearGradient>
-        </TouchableOpacity>
-      )}
+          ) : (
+            <FlatList
+              data={products}
+              renderItem={renderProduct}
+              keyExtractor={item => item.id}
+              numColumns={2}
+              columnWrapperStyle={styles.row}
+              contentContainerStyle={styles.grid}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              initialNumToRender={12}
+              maxToRenderPerBatch={10}
+              windowSize={10}
+              removeClippedSubviews={Platform.OS === 'android'}
+              getItemLayout={(data, index) => ({
+                length: 210, // Approximate row height (minHeight 190 + margin)
+                offset: 210 * index,
+                index,
+              })}
+            />
+          )}
+        </View>
+
+        <FloatingBillBar
+          isVisible={!isKeyboardVisible}
+          onPress={() => navigation.navigate('Bill')}
+        />
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -182,8 +201,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.lg,
-    paddingTop: SPACING.xl,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.xs,
   },
   backBtn: {
     width: 40,
@@ -209,11 +228,13 @@ const styles = StyleSheet.create({
   },
   searchRow: {
     paddingHorizontal: SPACING.xl,
-    paddingVertical: SPACING.md,
+    paddingTop: SPACING.xs,
+    paddingBottom: 0,
   },
   categoriesWrapper: {
-    paddingVertical: SPACING.sm,
-    height: 60,
+    paddingTop: 0,
+    paddingBottom: SPACING.sm,
+    height: 54,
   },
   categoriesContent: {
     paddingHorizontal: SPACING.xl,
@@ -221,7 +242,7 @@ const styles = StyleSheet.create({
   },
   grid: {
     paddingHorizontal: SPACING.xl,
-    paddingBottom: 90,
+    paddingBottom: SPACING.lg,
   },
   row: {
     justifyContent: 'space-between',
@@ -252,17 +273,19 @@ const styles = StyleSheet.create({
     color: COLORS.textLight,
   },
   floatingBar: {
-    position: 'absolute',
-    bottom: Platform.OS === 'android' ? 76 : 90,
-    left: SPACING.xl,
-    right: SPACING.xl,
-    borderRadius: RADIUS.xl,
-    overflow: 'hidden',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
+    width: '100%',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
   },
   floatingBarGradient: {
     flexDirection: 'row',
@@ -271,6 +294,11 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.md,
     paddingHorizontal: SPACING.xl,
     height: 64,
+    borderTopLeftRadius: RADIUS.xl,
+    borderTopRightRadius: RADIUS.xl,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    borderBottomWidth: 0,
   },
   floatingLeft: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
   floatingCount: {
@@ -284,4 +312,37 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontWeight: FONTS.weights.bold,
   },
+});
+
+/** ── Optimized Floating Bar Sub-component ────────────────────────── */
+/** This component listens to the store INDEPENDENTLY so the main list */
+/** never has to re-render when you add items.                       */
+const FloatingBillBar = React.memo(({ isVisible, onPress }) => {
+  const itemCount = useBillStore(s => s.items.length);
+
+  if (itemCount === 0 || !isVisible) return null;
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      style={styles.floatingBar}
+      activeOpacity={0.9}
+    >
+      <LinearGradient
+        colors={['rgba(108, 63, 232, 0.85)', 'rgba(0, 210, 255, 0.85)']} // Semi-transparent glass gradient
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.floatingBarGradient}
+      >
+        <View style={styles.floatingLeft}>
+          <Ionicons name="cart" size={22} color={COLORS.white} />
+          <Text style={styles.floatingCount}>{itemCount} item{itemCount > 1 ? 's' : ''} added</Text>
+        </View>
+        <View style={styles.floatingRight}>
+          <Text style={styles.floatingAction}>View Bill</Text>
+          <Ionicons name="chevron-forward" size={18} color={COLORS.white} />
+        </View>
+      </LinearGradient>
+    </TouchableOpacity>
+  );
 });

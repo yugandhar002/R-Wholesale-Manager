@@ -24,6 +24,25 @@ export const useBillStore = create((set, get) => ({
     }
   },
 
+  decrementItem: (productId) => {
+    const { items } = get();
+    const existing = items.find(i => i.product.id === productId);
+    if (!existing) return;
+    
+    if (existing.quantity <= 1) {
+      set({ items: items.filter(i => i.product.id !== productId), isSaved: false });
+    } else {
+      set({
+        items: items.map(i =>
+          i.product.id === productId
+            ? { ...i, quantity: i.quantity - 1 }
+            : i
+        ),
+        isSaved: false
+      });
+    }
+  },
+
   removeItem: (productId) => {
     set({ items: get().items.filter(i => i.product.id !== productId), isSaved: false });
   },

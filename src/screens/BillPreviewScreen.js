@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, SafeAreaView,
   StatusBar, TouchableOpacity, Alert, Share, Platform, Linking,
 } from 'react-native';
+import { CommonActions } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
@@ -174,22 +175,18 @@ export default function BillPreviewScreen({ navigation, route }) {
 </html>`;
   };
 
-  const handleExportPDF = async () => {
-    try {
-      const { uri } = await Print.printToFileAsync({ html: buildHtml() });
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Share Bill PDF' });
-      } else {
-        Alert.alert('PDF Saved', `Bill saved to: ${uri}`);
-      }
-    } catch (e) {
-      Alert.alert('Error', 'Could not generate PDF. Please try again.');
-    }
-  };
+  const goToSelectProducts = useCallback(() => {
+    // FULL STACK RESET — ensures no stale screens remain in memory
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: 'SelectProducts' }],
+      })
+    );
+  }, [navigation]);
 
-  const handleSaveBill = async () => {
-    if (saved) return;
+  const performSave = async () => {
+    if (saved) return true;
     setSaving(true);
     const { error } = await saveBill({
       customerName: custName || 'Walk-in Customer',
@@ -203,14 +200,39 @@ export default function BillPreviewScreen({ navigation, route }) {
     setSaving(false);
     if (error) {
       Alert.alert('Save Failed', error.message);
+      return false;
     } else {
       setSaved(true);
       setIsSaved(true);
       clearBill(); // Clear global store for next bill
+      return true;
     }
   };
 
-  const handleWhatsAppShare = () => {
+  const handleExportPDF = async () => {
+    // Auto-save if not already saved
+    const isSavedNow = await performSave();
+    if (!isSavedNow) return; // Don't proceed if save failed
+
+    try {
+      const { uri } = await Print.printToFileAsync({ html: buildHtml() });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Share Bill PDF' });
+      } else {
+        Alert.alert('PDF Saved', `Bill saved to: ${uri}`);
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Could not generate PDF. Please try again.');
+    }
+  };
+
+
+  const handleWhatsAppShare = async () => {
+    // Auto-save if not already saved
+    const isSavedNow = await performSave();
+    if (!isSavedNow) return; // Don't proceed if save failed
+
     if (!custPhone) {
       Alert.alert('Phone Number Missing', 'Please provide a customer phone number to use direct WhatsApp sharing.');
       return;
@@ -251,26 +273,13 @@ export default function BillPreviewScreen({ navigation, route }) {
   };
 
   const handleNewBill = () => {
-    if (saved) {
-      navigation.navigate('NewBillTab', { screen: 'SelectProducts' });
-      return;
-    }
-
-    Alert.alert('New Bill', 'Start a new bill? This will clear the current one.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'New Bill', onPress: () => {
-          clearBill();
-          navigation.navigate('NewBillTab', { screen: 'SelectProducts' });
-        },
-      },
-    ]);
+    goToSelectProducts();
   };
 
   const handleBack = () => {
     if (saved && !pastBill) {
-      // If we just saved a new bill, go back to Product Selection instead of empty Review page
-      navigation.navigate('NewBillTab', { screen: 'SelectProducts' });
+      // Stack is dirty after saving — reset it cleanly
+      goToSelectProducts();
     } else {
       navigation.goBack();
     }
@@ -298,14 +307,17 @@ export default function BillPreviewScreen({ navigation, route }) {
         {/* Bill Document */}
         <View style={styles.billDoc}>
           {/* Bill header */}
-          <LinearGradient
-            colors={['#6C3FE8', '#00D2FF']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.docHeader}
-          >
-            <Text style={styles.docShopName}>Rajeshwari Wholesale</Text>
-          </LinearGradient>
+          <View style={styles.docHeaderContainer}>
+            <LinearGradient
+              colors={['#6C3FE8', '#8E2DE2']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.docHeaderPill}
+            >
+              <Text style={styles.docShopName}>RAJESHWARI WHOLESALE</Text>
+            </LinearGradient>
+            <Text style={styles.docSub}>{billNo}  •  {dateStr}</Text>
+          </View>
 
           {/* Meta row */}
           <View style={styles.metaRow}>
@@ -337,40 +349,45 @@ export default function BillPreviewScreen({ navigation, route }) {
             ) : null}
           </View>
 
-          {/* Divider */}
-          <View style={styles.divider} />
+          {/* Modern Item List (Stacked) */}
+          <View style={styles.itemListContainer}>
+            {billItems.map((item, idx) => {
+              const name = item.product_name || item.product?.name;
+              const unit = item.product?.unit || '';
+              const mrp = item.mrp || item.product?.mrp || item.rate || item.product?.wholesale_rate || 0;
+              const rate = item.rate || item.product?.wholesale_rate || 0;
+              const amt = rate * item.quantity;
 
-          {/* Table header */}
-          <View style={styles.tableHeader}>
-            <Text style={[styles.th, { flex: 2.5 }]}>PRODUCT</Text>
-            <Text style={[styles.th, styles.thCenter, { flex: 0.7 }]}>QTY</Text>
-            <Text style={[styles.th, styles.thRight, { flex: 1.1 }]}>MRP</Text>
-            <Text style={[styles.th, styles.thRight, { flex: 1.1 }]}>WS RATE</Text>
-            <Text style={[styles.th, styles.thRight, { flex: 1.3 }]}>AMOUNT</Text>
-          </View>
-
-          {/* Items */}
-          {billItems.map((item, idx) => {
-            const name = item.product_name || item.product?.name;
-            const unit = item.product?.unit || '';
-            const mrp = item.mrp || item.product?.mrp || item.rate || item.product?.wholesale_rate || 0;
-            const rate = item.rate || item.product?.wholesale_rate || 0;
-
-            return (
-              <View key={item.id || item.product?.id || idx} style={[styles.tableRow, idx % 2 === 1 && styles.tableRowAlt]}>
-                <View style={{ flex: 2.5 }}>
-                  <Text style={styles.td} numberOfLines={2}>{name}</Text>
-                  <Text style={styles.tdSub}>{unit}</Text>
+              return (
+                <View key={item.id || item.product?.id || idx} style={styles.itemRow}>
+                  <View style={styles.itemInfo}>
+                    <Text style={styles.itemName} numberOfLines={2}>{name}</Text>
+                    <View style={styles.itemMeta}>
+                      <Text style={styles.itemDetail}>
+                        Qty: <Text style={styles.itemValue}>{item.quantity}</Text>
+                        {unit ? ` ${unit}` : ''}
+                      </Text>
+                      <View style={styles.metaDot} />
+                      <Text style={styles.itemDetail}>
+                        Rate: <Text style={styles.itemValue}>₹{rate}</Text>
+                      </Text>
+                      {mrp > rate && (
+                        <>
+                          <View style={styles.metaDot} />
+                          <Text style={[styles.itemDetail, { textDecorationLine: 'line-through' }]}>
+                            ₹{mrp}
+                          </Text>
+                        </>
+                      )}
+                    </View>
+                  </View>
+                  <View style={styles.itemTotal}>
+                    <Text style={styles.itemTotalText}>₹{amt.toLocaleString('en-IN')}</Text>
+                  </View>
                 </View>
-                <Text style={[styles.td, styles.tdCenter, { flex: 0.7 }]}>{item.quantity}</Text>
-                <Text style={[styles.td, styles.tdRight, { flex: 1.1 }]}>₹{mrp}</Text>
-                <Text style={[styles.td, styles.tdRight, { flex: 1.1 }]}>₹{rate}</Text>
-                <Text style={[styles.td, styles.tdRight, { flex: 1.3, color: COLORS.primary, fontWeight: FONTS.weights.bold }]}>
-                  ₹{(rate * item.quantity).toLocaleString('en-IN')}
-                </Text>
-              </View>
-            );
-          })}
+              );
+            })}
+          </View>
 
           {/* Totals */}
           <View style={styles.totalsSection}>
@@ -379,9 +396,9 @@ export default function BillPreviewScreen({ navigation, route }) {
               <Text style={styles.totalValue}>₹{subtotal.toLocaleString('en-IN')}</Text>
             </View>
             {totalSavings > 0 && (
-              <View style={styles.totalRow}>
-                <Text style={[styles.totalLabel, { color: COLORS.primary }]}>Wholesale Savings</Text>
-                <Text style={[styles.totalValue, { color: COLORS.primary }]}>₹{totalSavings.toLocaleString('en-IN')}</Text>
+              <View style={styles.savingsPill}>
+                <Ionicons name="gift" size={12} color={COLORS.primary} style={{ marginRight: 6 }} />
+                <Text style={styles.savingsText}>You saved ₹{totalSavings.toLocaleString('en-IN')} on this bill!</Text>
               </View>
             )}
             {billDiscount > 0 && (
@@ -398,54 +415,26 @@ export default function BillPreviewScreen({ navigation, route }) {
             </View>
           </View>
 
-          <Text style={styles.thankYou}>Thank you for your business! 🙏</Text>
-          <View style={styles.creditsContainer}>
-            <Text style={styles.creditText}>This bill is computer generated</Text>
-            <Text style={styles.creditText}>Created and owned by Yugandhar Ganteda</Text>
-            <Text style={styles.creditText}>Contact: 7205938316</Text>
-          </View>
         </View>
 
-        {/* Actions */}
-        <View style={styles.actions}>
-          {!pastBill && (
-            <GlassButton
-              title={saved ? '✓ Bill Saved' : saving ? 'Finalizing...' : 'Save Bill'}
-              variant={saved ? 'success' : 'glass'}
-              size="lg"
-              fullWidth
-              loading={saving}
-              disabled={saved}
-              onPress={handleSaveBill}
-              style={{ marginBottom: SPACING.md }}
-            />
-          )}
+        {/* Actions Row */}
+        <View style={styles.actionsRow}>
           <GlassButton
-            title="Export PDF / Share"
+            title="Export / PDF"
             variant="primary"
-            size="lg"
-            fullWidth
-            icon={<Ionicons name="share-outline" size={18} color={COLORS.white} />}
+            size="md"
+            icon={<Ionicons name="share-outline" size={16} color={COLORS.white} />}
             onPress={handleExportPDF}
-            style={{ marginBottom: SPACING.md }}
+            style={styles.actionBtn}
           />
           <GlassButton
-            title="Send to WhatsApp"
+            title="WhatsApp"
             variant="glass"
-            size="lg"
-            fullWidth
-            icon={<Ionicons name="logo-whatsapp" size={18} color="#25D366" />}
-            onPress={handleWhatsAppShare}
-            style={{ marginBottom: SPACING.md, borderColor: '#25D366' }}
-          />
-          {/* <GlassButton
-            title={saved ? "Back to Dashboard" : "New Bill"}
-            variant="outline"
             size="md"
-            fullWidth
-            icon={<Ionicons name={saved ? "home-outline" : "add-circle-outline"} size={18} color={COLORS.primary} />}
-            onPress={handleNewBill}
-          /> */}
+            icon={<Ionicons name="logo-whatsapp" size={16} color="#25D366" />}
+            onPress={handleWhatsAppShare}
+            style={[styles.actionBtn, { borderColor: '#25D366' }]}
+          />
         </View>
 
         <View style={{ height: 40 }} />
@@ -478,61 +467,87 @@ const styles = StyleSheet.create({
   billDoc: {
     marginHorizontal: SPACING.xl,
     backgroundColor: COLORS.white,
-    borderRadius: RADIUS.xl,
+    borderRadius: RADIUS.lg,
     overflow: 'hidden',
-    ...SHADOWS.strong,
+    ...SHADOWS.card,
     marginBottom: SPACING.xxl,
+    borderWidth: 1,
+    borderColor: '#F0F0F5',
   },
-  docHeader: { alignItems: 'center', paddingVertical: SPACING.xxl },
-  docShopName: { fontSize: FONTS.sizes.xxl, color: COLORS.white, fontWeight: FONTS.weights.heavy },
-  docTagline: { fontSize: FONTS.sizes.sm, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
+  docHeaderContainer: { alignItems: 'center', paddingVertical: SPACING.xl, backgroundColor: '#FAFAFF' },
+  docHeaderPill: {
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.xs,
+    borderRadius: RADIUS.xs,
+    marginBottom: 4,
+  },
+  docShopName: { fontSize: 16, color: COLORS.white, fontWeight: FONTS.weights.heavy, letterSpacing: 1.2 },
+  docSub: { fontSize: 10, color: COLORS.textLight, fontWeight: FONTS.weights.medium, textTransform: 'uppercase', letterSpacing: 0.5 },
   metaRow: {
     flexDirection: 'row',
-    backgroundColor: COLORS.backgroundCardDark,
     paddingVertical: SPACING.md,
     paddingHorizontal: SPACING.lg,
+    borderBottomWidth: 1,
+    borderColor: '#F5F5F7',
   },
   metaBlock: { flex: 1 },
-  metaLabel: { fontSize: FONTS.sizes.xs, color: COLORS.textLight, fontWeight: FONTS.weights.bold, letterSpacing: 0.5 },
-  metaValue: { fontSize: FONTS.sizes.sm, color: COLORS.textDark, fontWeight: FONTS.weights.bold, marginTop: 3 },
+  metaLabel: { fontSize: 9, color: COLORS.textLight, fontWeight: FONTS.weights.bold, letterSpacing: 0.8 },
+  metaValue: { fontSize: 11, color: COLORS.textDark, fontWeight: FONTS.weights.semibold, marginTop: 1 },
   customerRow: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md, gap: SPACING.sm,
+    paddingHorizontal: SPACING.lg, paddingVertical: SPACING.sm, gap: SPACING.sm,
+    backgroundColor: '#FAFAFF',
   },
-  customerName: { fontSize: FONTS.sizes.md, color: COLORS.textDark, fontWeight: FONTS.weights.semibold },
-  divider: { height: 1, backgroundColor: COLORS.divider, marginHorizontal: SPACING.lg },
-  tableHeader: {
+  customerName: { fontSize: 13, color: COLORS.textDark, fontWeight: FONTS.weights.bold },
+  divider: { height: 1.5, backgroundColor: COLORS.divider, marginHorizontal: SPACING.lg, opacity: 0.5 },
+
+  // New Item List
+  itemListContainer: { paddingVertical: SPACING.md },
+  itemRow: {
     flexDirection: 'row',
-    backgroundColor: COLORS.primary,
-    paddingVertical: SPACING.sm,
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F9F9FB',
+    alignItems: 'center',
   },
-  th: { fontSize: FONTS.sizes.xs, color: COLORS.white, fontWeight: FONTS.weights.bold, letterSpacing: 0.5 },
-  thCenter: { textAlign: 'center' },
-  thRight: { textAlign: 'right' },
-  tableRow: { flexDirection: 'row', paddingVertical: SPACING.sm, paddingHorizontal: SPACING.md, alignItems: 'center' },
-  tableRowAlt: { backgroundColor: COLORS.background },
-  td: { fontSize: FONTS.sizes.sm, color: COLORS.textDark, fontWeight: FONTS.weights.medium },
-  tdSub: { fontSize: FONTS.sizes.xs, color: COLORS.textLight, marginTop: 1 },
-  tdCenter: { textAlign: 'center' },
-  tdRight: { textAlign: 'right' },
+  itemInfo: { flex: 1 },
+  itemName: { fontSize: 14, color: COLORS.textDark, fontWeight: FONTS.weights.bold, lineHeight: 20 },
+  itemMeta: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  itemDetail: { fontSize: 11, color: COLORS.textLight, fontWeight: FONTS.weights.medium },
+  itemValue: { color: COLORS.textMid, fontWeight: FONTS.weights.bold },
+  metaDot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: COLORS.divider, mx: 8, marginHorizontal: 8 },
+  itemTotal: { paddingLeft: SPACING.md, alignItems: 'flex-end' },
+  itemTotalText: { fontSize: 15, color: COLORS.primary, fontWeight: FONTS.weights.bold },
+
   totalsSection: {
-    borderTopWidth: 1, borderTopColor: COLORS.divider,
-    marginTop: SPACING.sm, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.lg,
+    backgroundColor: '#FAFAFF',
+    paddingHorizontal: SPACING.lg, paddingVertical: SPACING.xl,
+    borderTopWidth: 1.5, borderTopColor: '#EEEEF5',
   },
+  savingsPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary + '10',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: RADIUS.md,
+    marginBottom: SPACING.md,
+  },
+  savingsText: { fontSize: 12, color: COLORS.primary, fontWeight: FONTS.weights.bold },
+
   totalRow: {
     flexDirection: 'row', justifyContent: 'space-between',
     marginBottom: SPACING.sm,
   },
-  totalLabel: { fontSize: FONTS.sizes.md, color: COLORS.textMid, fontWeight: FONTS.weights.medium },
-  totalValue: { fontSize: FONTS.sizes.md, color: COLORS.textDark, fontWeight: FONTS.weights.semibold },
+  totalLabel: { fontSize: FONTS.sizes.sm, color: COLORS.textMid, fontWeight: FONTS.weights.medium },
+  totalValue: { fontSize: FONTS.sizes.sm, color: COLORS.textDark, fontWeight: FONTS.weights.semibold },
   grandTotalRow: {
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'center', marginTop: SPACING.sm,
-    borderTopWidth: 1.5, borderTopColor: COLORS.primary, paddingTop: SPACING.md,
   },
-  grandLabel: { fontSize: FONTS.sizes.md, color: COLORS.textDark, fontWeight: FONTS.weights.bold, letterSpacing: 0.5 },
-  grandBadge: { borderRadius: RADIUS.full, paddingHorizontal: SPACING.xl, paddingVertical: SPACING.sm },
+  grandLabel: { fontSize: FONTS.sizes.md, color: COLORS.textDark, fontWeight: FONTS.weights.heavy, letterSpacing: 0.5 },
+  grandBadge: { borderRadius: RADIUS.md, paddingHorizontal: SPACING.xl, paddingVertical: SPACING.sm },
   grandAmount: { fontSize: FONTS.sizes.xl, color: COLORS.white, fontWeight: FONTS.weights.heavy },
   thankYou: {
     textAlign: 'center', fontSize: FONTS.sizes.sm, color: COLORS.textLight,
@@ -549,5 +564,12 @@ const styles = StyleSheet.create({
     opacity: 0.8,
     marginTop: 2,
   },
-  actions: { paddingHorizontal: SPACING.xl },
+  actionsRow: { 
+    flexDirection: 'row', 
+    paddingHorizontal: SPACING.xl, 
+    gap: SPACING.md,
+    alignItems: 'center',
+    marginBottom: SPACING.lg,
+  },
+  actionBtn: { flex: 1 },
 });
