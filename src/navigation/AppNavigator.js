@@ -10,6 +10,9 @@ import ProductSelectionScreen from '../screens/ProductSelectionScreen';
 import BillScreen from '../screens/BillScreen';
 import BillPreviewScreen from '../screens/BillPreviewScreen';
 import ProductManagementScreen from '../screens/ProductManagementScreen';
+import CustomersScreen from '../screens/CustomersScreen';
+import CustomerDetailsScreen from '../screens/CustomerDetailsScreen';
+import { useBillStore } from '../store/billStore';
 import { COLORS, FONTS } from '../theme';
 
 const Stack = createStackNavigator();
@@ -21,6 +24,8 @@ function HomeStack() {
     <Stack.Navigator screenOptions={{ headerShown: false, cardStyle: { backgroundColor: COLORS.background } }}>
       <Stack.Screen name="Home" component={HomeScreen} />
       <Stack.Screen name="SalesHistory" component={SalesHistoryScreen} />
+      <Stack.Screen name="Customers" component={CustomersScreen} />
+      <Stack.Screen name="CustomerDetails" component={CustomerDetailsScreen} />
     </Stack.Navigator>
   );
 }
@@ -79,6 +84,7 @@ export default function AppNavigator() {
             tabPress: (e) => {
               // Always reset to product selection when tapping the "New Bill" tab
               e.preventDefault();
+              useBillStore.getState().clearBill();
               navigation.navigate('NewBillTab', { screen: 'SelectProducts' });
             },
           })}

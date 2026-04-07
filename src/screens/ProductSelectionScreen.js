@@ -112,7 +112,16 @@ export default function ProductSelectionScreen({ navigation }) {
             { backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }
           ]}
         >
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <TouchableOpacity 
+            onPress={() => {
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+              } else {
+                navigation.navigate('HomeTab');
+              }
+            }} 
+            style={styles.backBtn}
+          >
             <Ionicons name="chevron-back" size={24} color={COLORS.primary} />
           </TouchableOpacity>
           <View style={styles.headerCenter}>

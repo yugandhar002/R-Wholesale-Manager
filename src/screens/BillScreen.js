@@ -21,8 +21,11 @@ export default function BillScreen({ navigation }) {
   const setCustomerPhone = useBillStore(s => s.setCustomerPhone);
   const setDiscount = useBillStore(s => s.setDiscount);
   const updateQuantity = useBillStore(s => s.updateQuantity);
+  const updateRate = useBillStore(s => s.updateRate);
   const removeItem = useBillStore(s => s.removeItem);
   const getSubtotal = useBillStore(s => s.getSubtotal);
+  const getItemCount = useBillStore(s => s.getItemCount);
+  const editingId = useBillStore(s => s.editingId);
   const getTotal = useBillStore(s => s.getTotal);
 
   const subtotal = getSubtotal();
@@ -73,6 +76,10 @@ export default function BillScreen({ navigation }) {
   const handleUpdateQuantity = useCallback((id, qty) => {
     updateQuantity(id, qty);
   }, [updateQuantity]);
+
+  const handleUpdateRate = useCallback((id, rate) => {
+    updateRate(id, rate);
+  }, [updateRate]);
 
   const handleRemoveItem = useCallback((id) => {
     removeItem(id);
@@ -135,7 +142,7 @@ export default function BillScreen({ navigation }) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color={COLORS.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Review Bill</Text>
+        <Text style={styles.headerTitle}>{editingId ? 'Edit Bill' : 'Review Bill'}</Text>
         {items.length > 0 && (
           <TouchableOpacity onPress={handleClearBill} style={styles.clearBtn}>
             <Ionicons name="trash-outline" size={20} color={COLORS.danger} />
@@ -249,6 +256,7 @@ export default function BillScreen({ navigation }) {
                   key={item.product.id}
                   item={item}
                   onUpdateQuantity={handleUpdateQuantity}
+                  onUpdateRate={handleUpdateRate}
                   onRemove={handleRemoveItem}
                 />
               ))

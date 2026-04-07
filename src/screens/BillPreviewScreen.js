@@ -10,11 +10,13 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import GlassButton from '../components/GlassButton';
 import { useBillStore } from '../store/billStore';
-import { saveBill, generateBillNumber } from '../services/billService';
+import { saveBill, updateBill, generateBillNumber } from '../services/billService';
 import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../theme';
 
 export default function BillPreviewScreen({ navigation, route }) {
   const pastBill = route.params?.bill;
+  const editingId = useBillStore(s => s.editingId);
+  const loadBill = useBillStore(s => s.loadBill);
 
   const storeItems = useBillStore(s => s.items);
   const storeCustomer = useBillStore(s => s.customerName);
@@ -120,7 +122,7 @@ export default function BillPreviewScreen({ navigation, route }) {
 <body>
   <div class="header">
     <div class="shop-info">
-      <div class="shop-name">Rajeshwari Wholesale</div>
+      <div class="shop-name">RAJESHWARI WHOLESALE</div>
       <div class="shop-sub">
         Ph: 7873574186, 9437067428<br/>
         Email: gkrishna0744@gmail.com
@@ -186,20 +188,38 @@ export default function BillPreviewScreen({ navigation, route }) {
   }, [navigation]);
 
   const performSave = async () => {
-    if (saved) return true;
+    if (saved && !editingId) return true;
     setSaving(true);
-    const { error } = await saveBill({
-      customerName: custName || 'Walk-in Customer',
-      customerPhone: custPhone || '',
-      items: billItems,
-      subtotal,
-      discount: billDiscount,
-      total,
-      billNumber: billNo,
-    });
+    
+    let result;
+    if (editingId) {
+      // Update existing bill
+      result = await updateBill({
+        billId: editingId,
+        customerName: custName || 'Walk-in Customer',
+        customerPhone: custPhone || '',
+        items: billItems,
+        subtotal,
+        discount: billDiscount,
+        total,
+        billNumber: billNo,
+      });
+    } else {
+      // Create new bill
+      result = await saveBill({
+        customerName: custName || 'Walk-in Customer',
+        customerPhone: custPhone || '',
+        items: billItems,
+        subtotal,
+        discount: billDiscount,
+        total,
+        billNumber: billNo,
+      });
+    }
+
     setSaving(false);
-    if (error) {
-      Alert.alert('Save Failed', error.message);
+    if (result.error) {
+      Alert.alert('Save Failed', result.error.message);
       return false;
     } else {
       setSaved(true);
@@ -207,6 +227,12 @@ export default function BillPreviewScreen({ navigation, route }) {
       clearBill(); // Clear global store for next bill
       return true;
     }
+  };
+
+  const handleEdit = () => {
+    if (!pastBill) return;
+    loadBill(pastBill);
+    navigation.navigate('Bill');
   };
 
   const handleExportPDF = async () => {
@@ -277,10 +303,14 @@ export default function BillPreviewScreen({ navigation, route }) {
   };
 
   const handleBack = () => {
-    if (saved && !pastBill) {
-      // Stack is dirty after saving — reset it cleanly
+    if (pastBill) {
+      // If we're viewing a past bill, return to the previous tab (History/Home)
+      navigation.navigate('HomeTab');
+    } else if (saved) {
+      // If we just saved a new bill, reset the current stack to start fresh
       goToSelectProducts();
     } else {
+      // Default behavior for in-progress bills
       navigation.goBack();
     }
   };
@@ -298,6 +328,11 @@ export default function BillPreviewScreen({ navigation, route }) {
           <Ionicons name="chevron-back" size={24} color={COLORS.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{pastBill ? 'Bill Detail' : 'Review Bill'}</Text>
+        {pastBill && (
+          <TouchableOpacity onPress={handleEdit} style={styles.editBtn}>
+            <Ionicons name="create-outline" size={20} color={COLORS.primary} />
+          </TouchableOpacity>
+        )}
         <TouchableOpacity onPress={handleExportPDF} style={styles.pdfBtn}>
           <Ionicons name="share-outline" size={20} color={COLORS.primary} />
         </TouchableOpacity>
@@ -463,6 +498,13 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: RADIUS.full,
     backgroundColor: COLORS.glassButtonBg, alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: COLORS.glassButtonBorder,
+    marginLeft: SPACING.md,
+  },
+  editBtn: {
+    width: 40, height: 40, borderRadius: RADIUS.full,
+    backgroundColor: COLORS.glassButtonBg, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: COLORS.glassButtonBorder,
+    marginLeft: SPACING.md,
   },
   billDoc: {
     marginHorizontal: SPACING.xl,
@@ -564,9 +606,9 @@ const styles = StyleSheet.create({
     opacity: 0.8,
     marginTop: 2,
   },
-  actionsRow: { 
-    flexDirection: 'row', 
-    paddingHorizontal: SPACING.xl, 
+  actionsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: SPACING.xl,
     gap: SPACING.md,
     alignItems: 'center',
     marginBottom: SPACING.lg,

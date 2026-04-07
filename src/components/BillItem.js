@@ -6,6 +6,7 @@ import { COLORS, FONTS, RADIUS, SHADOWS } from '../theme';
 const BillItem = ({
   item,
   onUpdateQuantity,
+  onUpdateRate,
   onRemove
 }) => {
   const { product, quantity } = item;
@@ -20,7 +21,20 @@ const BillItem = ({
           {product.mrp > product.wholesale_rate && (
             <Text style={styles.mrp}>MRP: ₹{product.mrp}</Text>
           )}
-          <Text style={styles.rate}>₹{product.wholesale_rate} / {product.unit}</Text>
+          <View style={styles.rateInputRow}>
+            <Text style={styles.rateSymbol}>₹</Text>
+            <TextInput
+              style={styles.rateInput}
+              value={String(product.wholesale_rate)}
+              onChangeText={(val) => {
+                const num = parseFloat(val.replace(/[^0-9.]/g, '')) || 0;
+                onUpdateRate(product.id, num);
+              }}
+              keyboardType="numeric"
+              selectTextOnFocus
+            />
+            <Text style={styles.unitText}> / {product.unit}</Text>
+          </View>
         </View>
       </View>
 
@@ -99,8 +113,32 @@ const styles = StyleSheet.create({
     color: COLORS.textLight,
     fontWeight: FONTS.weights.medium,
   },
-  rate: {
-    fontSize: FONTS.sizes.xs,
+  rateInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  rateSymbol: {
+    fontSize: 12,
+    color: COLORS.textDark,
+    fontWeight: FONTS.weights.bold,
+  },
+  rateInput: {
+    fontSize: 13,
+    color: COLORS.textDark,
+    fontWeight: FONTS.weights.bold,
+    minWidth: 40,
+    padding: 0,
+    marginHorizontal: 1,
+    textAlign: 'center',
+  },
+  unitText: {
+    fontSize: 11,
     color: COLORS.textLight,
   },
   qtyRow: {

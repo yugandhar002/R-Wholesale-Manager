@@ -1,4 +1,5 @@
 import { supabase, IS_MOCK } from '../lib/supabase';
+import { ensureCustomer } from './customerService';
 
 const getLocalDateString = (date) => {
   const d = new Date(date);
@@ -53,12 +54,18 @@ export async function saveBill({ customerName, customerPhone, items, subtotal, d
     subtotal: (i.product?.wholesale_rate || i.rate || 0) * i.quantity,
   }));
 
+  // Ensure customer exists and get their record
+  const customer = await ensureCustomer(customerName, customerPhone);
+  const cleanName = customer?.name || customerName.trim();
+  const cleanPhone = customer?.phone || customerPhone?.trim();
+
   // Save the bill header - only select the ID to minimize response size
   const { data: bill, error: billError } = await supabase
     .from('bills')
     .insert([{ 
-      customer_name: customerName, 
-      customer_phone: customerPhone,
+      customer_name: cleanName, 
+      customer_phone: cleanPhone,
+      customer_id: customer?.id,
       bill_number: billNumber, 
       subtotal, 
       discount, 
@@ -75,10 +82,90 @@ export async function saveBill({ customerName, customerPhone, items, subtotal, d
   const { error: itemsError } = await supabase
     .from('bill_items')
     .insert(lineItems);
-    
   if (itemsError) return { data: null, error: itemsError };
 
   return { data: bill, error: null };
+}
+
+export async function updateBill({ billId, customerName, customerPhone, items, subtotal, discount, total, billNumber }) {
+  if (IS_MOCK) {
+    const idx = MOCK_BILLS.findIndex(b => b.id === billId);
+    if (idx !== -1) {
+      MOCK_BILLS[idx] = {
+        ...MOCK_BILLS[idx],
+        customer_name: customerName,
+        customer_phone: customerPhone,
+        subtotal,
+        discount,
+        total_amount: total,
+        bill_items: items.map(i => ({
+          product_id: i.product?.id || i.product_id,
+          product_name: i.product?.name || i.product_name,
+          mrp: i.product?.mrp || i.mrp || 0,
+          rate: i.product?.wholesale_rate || i.rate || 0,
+          unit: i.product?.unit || i.unit || '',
+          quantity: i.quantity,
+          subtotal: (i.product?.wholesale_rate || i.rate || 0) * i.quantity,
+        })),
+      };
+      return { data: MOCK_BILLS[idx], error: null };
+    }
+    return { data: null, error: { message: 'Bill not found' } };
+  }
+
+  try {
+    // 1. Ensure customer exists/links
+    const customer = await ensureCustomer(customerName, customerPhone);
+    const cleanName = customer?.name || customerName.trim();
+    const cleanPhone = customer?.phone || customerPhone?.trim();
+
+    // 2. Update the bill header
+    const { error: billError } = await supabase
+      .from('bills')
+      .update({
+        customer_id: customer?.id,
+        customer_name: cleanName,
+        customer_phone: cleanPhone,
+        subtotal,
+        discount,
+        total_amount: total,
+        // bill_number stays the same
+      })
+      .eq('id', billId);
+
+    if (billError) throw billError;
+
+    // 3. Delete old items
+    const { error: deleteError } = await supabase
+      .from('bill_items')
+      .delete()
+      .eq('bill_id', billId);
+
+    if (deleteError) throw deleteError;
+
+    // 4. Insert new items
+    const itemsToSave = items.map(i => ({
+      bill_id: billId,
+      product_id: i.product?.id || i.product_id,
+      product_name: i.product?.name || i.product_name,
+      mrp: i.product?.mrp || i.mrp || 0,
+      rate: i.product?.wholesale_rate || i.rate || 0,
+      unit: i.product?.unit || i.unit || '',
+      quantity: i.quantity,
+      subtotal: (i.product?.wholesale_rate || i.rate || 0) * i.quantity,
+    }));
+
+    const { error: itemsError } = await supabase
+      .from('bill_items')
+      .insert(itemsToSave);
+
+    if (itemsError) throw itemsError;
+
+    return { error: null };
+  } catch (error) {
+    console.error('Error updating bill:', error);
+    return { error };
+  }
 }
 
 export async function getRecentBills(limit = 10) {

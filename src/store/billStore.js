@@ -5,6 +5,7 @@ export const useBillStore = create((set, get) => ({
   customerName: '',
   customerPhone: '',
   discount: 0,
+  editingId: null, // Track the bill being edited
   isSaved: false,
 
   // ── Actions ──────────────────────────────────────────────────────────────────
@@ -59,12 +60,51 @@ export const useBillStore = create((set, get) => ({
     }
   },
 
+  updateRate: (productId, rate) => {
+    set({
+      items: get().items.map(i =>
+        i.product.id === productId ? { ...i, product: { ...i.product, wholesale_rate: Number(rate) || 0 } } : i
+      ),
+      isSaved: false
+    });
+  },
+
   setCustomerName: (name) => set({ customerName: name, isSaved: false }),
   setCustomerPhone: (phone) => set({ customerPhone: phone, isSaved: false }),
   setDiscount: (discount) => set({ discount: Number(discount) || 0, isSaved: false }),
   setIsSaved: (val) => set({ isSaved: val }),
 
-  clearBill: () => set({ items: [], customerName: '', customerPhone: '', discount: 0, isSaved: false }),
+  loadBill: (bill) => {
+    // Map bill_items to the store format
+    const loadedItems = (bill.bill_items || []).map(bi => ({
+      product: {
+        id: bi.product_id,
+        name: bi.product_name,
+        wholesale_rate: Number(bi.rate) || 0,
+        mrp: Number(bi.mrp) || 0,
+        unit: bi.unit || '',
+      },
+      quantity: bi.quantity,
+    }));
+
+    set({
+      items: loadedItems,
+      customerName: bill.customer_name || '',
+      customerPhone: bill.customer_phone || '',
+      discount: Number(bill.discount) || 0,
+      editingId: bill.id,
+      isSaved: true, // It's already in the DB
+    });
+  },
+
+  clearBill: () => set({ 
+    items: [], 
+    customerName: '', 
+    customerPhone: '', 
+    discount: 0, 
+    editingId: null, 
+    isSaved: false 
+  }),
 
   // ── Computed ─────────────────────────────────────────────────────────────────
   getSubtotal: () => {

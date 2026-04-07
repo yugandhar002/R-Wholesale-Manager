@@ -84,7 +84,19 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.body}>
           {/* ── New Bill CTA ──────────────────────────────────── */}
           <TouchableOpacity
-            onPress={() => navigation.navigate('NewBillTab', { screen: 'SelectProducts' })}
+            onPress={() => {
+              useBillStore.getState().clearBill();
+              // Reset the NewBillTab stack to SelectProducts so nothing is hidden behind it
+              navigation.reset({
+                index: 0,
+                routes: [{
+                  name: 'NewBillTab',
+                  state: {
+                    routes: [{ name: 'SelectProducts' }],
+                  },
+                }],
+              });
+            }}
             style={styles.newBillBtn}
             activeOpacity={0.85}
           >
@@ -100,6 +112,29 @@ export default function HomeScreen({ navigation }) {
               <View style={styles.ctaText}>
                 <Text style={styles.ctaTitle}>Create New Bill</Text>
                 <Text style={styles.ctaSub}>Tap to select products & generate bill</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={COLORS.white} />
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* ── Manage Customers CTA ────────────────────────────── */}
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Customers')}
+            style={styles.customersBtn}
+            activeOpacity={0.85}
+          >
+            <LinearGradient
+              colors={['#8E2DE2', '#4A00E0']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.newBillGradient}
+            >
+              <View style={styles.ctaIcon}>
+                <Ionicons name="people" size={26} color="#8E2DE2" />
+              </View>
+              <View style={styles.ctaText}>
+                <Text style={styles.ctaTitle}>Manage Customers</Text>
+                <Text style={styles.ctaSub}>View history, edit names & phone numbers</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={COLORS.white} />
             </LinearGradient>
@@ -210,6 +245,7 @@ const styles = StyleSheet.create({
   statDivider: { width: 1, height: 24, backgroundColor: 'rgba(255,255,255,0.2)' },
   body: { paddingHorizontal: SPACING.xl, marginTop: -30 },
   newBillBtn: { borderRadius: 24, ...SHADOWS.strong, marginBottom: SPACING.lg, overflow: 'hidden' },
+  customersBtn: { borderRadius: 24, ...SHADOWS.strong, marginBottom: SPACING.lg, overflow: 'hidden' },
   newBillGradient: { flexDirection: 'row', alignItems: 'center', padding: 20 },
   ctaIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center' },
   ctaText: { flex: 1, marginLeft: 16 },
