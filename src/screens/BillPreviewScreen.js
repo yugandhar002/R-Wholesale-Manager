@@ -16,8 +16,7 @@ import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../theme';
 export default function BillPreviewScreen({ navigation, route }) {
   const pastBill = route.params?.bill;
   const editingId = useBillStore(s => s.editingId);
-  const loadBill = useBillStore(s => s.loadBill);
-
+  const editingBillNumber = useBillStore(s => s.editingBillNumber);
   const storeItems = useBillStore(s => s.items);
   const storeCustomer = useBillStore(s => s.customerName);
   const storePhone = useBillStore(s => s.customerPhone);
@@ -26,15 +25,22 @@ export default function BillPreviewScreen({ navigation, route }) {
   const storeTotal = useBillStore(s => s.getTotal());
   const clearBill = useBillStore(s => s.clearBill);
   const setIsSaved = useBillStore(s => s.setIsSaved);
+  const loadBill = useBillStore(s => s.loadBill);
 
-  // Snapshot data when screen opens so it persists even if store is cleared
-  // If we're viewing a past bill, use its data instead of the store
-  const [billItems, setBillItems] = useState(pastBill ? (pastBill.bill_items || pastBill.items || []) : [...storeItems]);
-  const [custName, setCustName] = useState(pastBill ? pastBill.customer_name : storeCustomer);
-  const [custPhone, setCustPhone] = useState(pastBill ? pastBill.customer_phone : storePhone);
-  const [billDiscount, setBillDiscount] = useState(pastBill ? (pastBill.discount || 0) : storeDiscount);
-  const [subtotal, setSubtotal] = useState(pastBill ? (pastBill.subtotal || pastBill.total_amount) : storeSubtotal);
-  const [total, setTotal] = useState(pastBill ? pastBill.total_amount : storeTotal);
+  // ── Derived Data ──────────────────────────────────────────────────────────
+  const isEditing = !!editingId;
+  const isViewing = !!pastBill && !isEditing;
+
+  const billItems = isViewing ? (pastBill.bill_items || []) : storeItems;
+  const custName = isViewing ? pastBill.customer_name : storeCustomer;
+  const custPhone = isViewing ? pastBill.customer_phone : storePhone;
+  const billDiscount = isViewing ? (pastBill.discount || 0) : storeDiscount;
+  const subtotal = isViewing ? (pastBill.subtotal || pastBill.total_amount) : storeSubtotal;
+  const total = isViewing ? pastBill.total_amount : storeTotal;
+
+  // Still need a stable bill number for new bills
+  const [sessionBillNo] = useState(() => generateBillNumber());
+  const billNo = isViewing ? pastBill.bill_number : (isEditing ? editingBillNumber : sessionBillNo);
 
   const totalSavings = useMemo(() => {
     return billItems.reduce((sum, i) => {
@@ -45,22 +51,12 @@ export default function BillPreviewScreen({ navigation, route }) {
   }, [billItems]);
 
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(!!pastBill);
-  const [billNo, setBillNo] = useState(() => pastBill ? pastBill.bill_number : generateBillNumber());
+  const [saved, setSaved] = useState(isViewing);
 
-  // Keep screen in sync when pastBill changes via navigation
+  // Keep saved status in sync for past bills
   useEffect(() => {
-    if (pastBill) {
-      setBillItems(pastBill.bill_items || pastBill.items || []);
-      setCustName(pastBill.customer_name);
-      setCustPhone(pastBill.customer_phone);
-      setBillDiscount(pastBill.discount || 0);
-      setSubtotal(pastBill.subtotal || pastBill.total_amount);
-      setTotal(pastBill.total_amount);
-      setSaved(true);
-      setBillNo(pastBill.bill_number);
-    }
-  }, [pastBill?.id, pastBill?.bill_number]);
+    if (isViewing) setSaved(true);
+  }, [isViewing]);
 
   const dateStr = pastBill
     ? new Date(pastBill.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })

@@ -6,6 +6,7 @@ export const useBillStore = create((set, get) => ({
   customerPhone: '',
   discount: 0,
   editingId: null, // Track the bill being edited
+  editingBillNumber: null, // Track the original bill number
   isSaved: false,
 
   // ── Actions ──────────────────────────────────────────────────────────────────
@@ -75,25 +76,34 @@ export const useBillStore = create((set, get) => ({
   setIsSaved: (val) => set({ isSaved: val }),
 
   loadBill: (bill) => {
-    // Map bill_items to the store format
-    const loadedItems = (bill.bill_items || []).map(bi => ({
-      product: {
-        id: bi.product_id,
-        name: bi.product_name,
-        wholesale_rate: Number(bi.rate) || 0,
-        mrp: Number(bi.mrp) || 0,
-        unit: bi.unit || '',
-      },
-      quantity: bi.quantity,
-    }));
+    // Map and de-duplicate bill_items by product_id
+    const itemsMap = {};
+    (bill.bill_items || []).forEach(bi => {
+      const pid = bi.product_id;
+      if (itemsMap[pid]) {
+        itemsMap[pid].quantity += (bi.quantity || 0);
+      } else {
+        itemsMap[pid] = {
+          product: {
+            id: pid,
+            name: bi.product_name,
+            wholesale_rate: Number(bi.rate) || 0,
+            mrp: Number(bi.mrp) || 0,
+            unit: bi.unit || '',
+          },
+          quantity: bi.quantity || 0,
+        };
+      }
+    });
 
     set({
-      items: loadedItems,
+      items: Object.values(itemsMap),
       customerName: bill.customer_name || '',
       customerPhone: bill.customer_phone || '',
       discount: Number(bill.discount) || 0,
       editingId: bill.id,
-      isSaved: true, // It's already in the DB
+      editingBillNumber: bill.bill_number,
+      isSaved: true,
     });
   },
 
@@ -103,6 +113,7 @@ export const useBillStore = create((set, get) => ({
     customerPhone: '', 
     discount: 0, 
     editingId: null, 
+    editingBillNumber: null,
     isSaved: false 
   }),
 

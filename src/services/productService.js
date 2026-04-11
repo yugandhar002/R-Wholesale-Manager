@@ -37,14 +37,23 @@ export async function searchProducts(query = '', category = 'All') {
     if (query.trim()) {
       const q = query.toLowerCase();
       results = results.filter(p => p.name.toLowerCase().includes(q));
+      // Sort by MRP Ascending ONLY when searching
+      results.sort((a, b) => (a.mrp || 0) - (b.mrp || 0));
+    } else {
+      // Sort by Name Ascending when NOT searching
+      results.sort((a, b) => a.name.localeCompare(b.name));
     }
     return { data: results, error: null };
   }
 
   let q = supabase.from('products').select('*');
-  if (query.trim()) q = q.ilike('name', `%${query}%`);
+  if (query.trim()) {
+    q = q.ilike('name', `%${query}%`).order('mrp', { ascending: true });
+  } else {
+    q = q.order('name');
+  }
   if (category && category !== 'All') q = q.eq('category', category);
-  return await q.order('name');
+  return await q;
 }
 
 export async function getCategories() {
@@ -61,7 +70,9 @@ export async function getCategories() {
 }
 
 export async function getAllProducts() {
-  if (IS_MOCK) return { data: MOCK_PRODUCTS, error: null };
+  if (IS_MOCK) {
+    return { data: [...MOCK_PRODUCTS].sort((a, b) => a.name.localeCompare(b.name)), error: null };
+  }
   return await supabase.from('products').select('*').order('name');
 }
 

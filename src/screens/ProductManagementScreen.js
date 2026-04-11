@@ -21,7 +21,7 @@ export default function ProductManagementScreen() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [sortBy, setSortBy] = useState('recent'); // Default to 'recent' (Recently Added)
+  const [sortBy, setSortBy] = useState('name'); // Default back to 'name' (A-Z)
 
   const fetchAll = useCallback(async () => {
     const { data } = await getAllProducts();
@@ -37,7 +37,9 @@ export default function ProductManagementScreen() {
 
   const sortedProducts = useMemo(() => {
     return [...filtered].sort((a, b) => {
-      if (sortBy === 'name') {
+      if (sortBy === 'mrp') {
+        return (a.mrp || 0) - (b.mrp || 0); // Lowest Price first
+      } else if (sortBy === 'name') {
         return a.name.localeCompare(b.name);
       } else if (sortBy === 'recent') {
         const dateA = new Date(a.created_at || 0).getTime();
@@ -160,6 +162,13 @@ export default function ProductManagementScreen() {
 
       <View style={styles.sortRow}>
         <Text style={styles.sortLabel}>Sort by:</Text>
+        <TouchableOpacity 
+          style={[styles.sortChip, sortBy === 'mrp' && styles.sortChipActive]}
+          onPress={() => setSortBy('mrp')}
+        >
+          <Ionicons name="pricetag" size={12} color={sortBy === 'mrp' ? COLORS.white : COLORS.primary} />
+          <Text style={[styles.sortChipText, sortBy === 'mrp' && styles.sortChipTextActive]}>Price</Text>
+        </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.sortChip, sortBy === 'name' && styles.sortChipActive]}
           onPress={() => setSortBy('name')}

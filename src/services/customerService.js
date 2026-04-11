@@ -37,10 +37,21 @@ export async function deleteCustomer(id) {
     if (index !== -1) MOCK_CUSTOMERS.splice(index, 1);
     return { error: null };
   }
-  return await supabase
+  
+  const { error } = await supabase
     .from('customers')
     .delete()
     .eq('id', id);
+
+  if (error) {
+    console.error('Core deletion error:', error);
+    // Standardize error message for UI
+    if (error.code === '23503') {
+      return { error: { ...error, message: 'Cannot delete customer because they have bills. Please run the SQL fix.' } };
+    }
+  }
+  
+  return { error };
 }
 
 export async function getCustomerBills(customerName, customerId = null) {
@@ -123,23 +134,41 @@ export async function ensureCustomer(name, phone) {
     const cleanName = name.trim();
     const cleanPhone = phone?.trim() || '';
 
-    // Check if exists
-    const { data: existing, error: checkError } = await supabase
+    // 1. If phone is provided, check by phone first (to prevent duplicate numbers with different names)
+    if (cleanPhone) {
+      const { data: existingByPhone } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('phone', cleanPhone)
+        .maybeSingle();
+      
+      if (existingByPhone) {
+        return existingByPhone;
+      }
+    }
+
+    // 2. If no phone provided, or phone not found, check by name
+    const { data: existingByName, error: checkError } = await supabase
       .from('customers')
       .select('*')
       .ilike('name', cleanName)
       .maybeSingle();
 
-    if (existing) {
-      // Update phone if it was empty before
-      if (cleanPhone && !existing.phone) {
-        const { data: updated } = await supabase.from('customers').update({ phone: cleanPhone }).eq('id', existing.id).select().single();
-        return updated || existing;
+    if (existingByName) {
+      // Update phone if it was empty before and we have one now
+      if (cleanPhone && !existingByName.phone) {
+        const { data: updated } = await supabase
+          .from('customers')
+          .update({ phone: cleanPhone })
+          .eq('id', existingByName.id)
+          .select()
+          .single();
+        return updated || existingByName;
       }
-      return existing;
+      return existingByName;
     }
 
-    // Create new
+    // 3. Create new customer if neither phone nor name matches
     const { data: created, error: insertError } = await supabase
       .from('customers')
       .insert([{ name: cleanName, phone: cleanPhone }])

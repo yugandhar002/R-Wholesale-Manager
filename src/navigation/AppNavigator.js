@@ -83,8 +83,8 @@ export default function AppNavigator() {
           listeners={({ navigation }) => ({
             tabPress: (e) => {
               // Always reset to product selection when tapping the "New Bill" tab
+              // We removed clearBill() here to allow continuing an active session
               e.preventDefault();
-              useBillStore.getState().clearBill();
               navigation.navigate('NewBillTab', { screen: 'SelectProducts' });
             },
           })}

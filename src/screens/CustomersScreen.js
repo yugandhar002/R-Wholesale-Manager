@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   Alert, Modal, TextInput, ActivityIndicator, SafeAreaView,
-  StatusBar, Platform,
+  StatusBar, Platform, RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,13 +17,13 @@ export default function CustomersScreen({ navigation }) {
   const [filteredCustomers, setFilteredCustomers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
 
-  const loadCustomers = useCallback(async () => {
-    setLoading(true);
+  const loadCustomers = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     const { data, error } = await getCustomers();
     if (error) {
       console.error('Error fetching customers:', error);
@@ -32,7 +32,13 @@ export default function CustomersScreen({ navigation }) {
       setFilteredCustomers(data || []);
     }
     setLoading(false);
+    setRefreshing(false);
   }, []);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadCustomers(true);
+  }, [loadCustomers]);
 
   useEffect(() => {
     loadCustomers();
@@ -52,17 +58,6 @@ export default function CustomersScreen({ navigation }) {
     }
   }, [searchQuery, customers]);
 
-  const handleSync = async () => {
-    setSyncing(true);
-    const { count, error } = await syncCustomersFromBills();
-    if (error) {
-      Alert.alert('Sync Error', 'Failed to sync customers from bills.');
-    } else {
-      Alert.alert('Sync Complete', `Added ${count} new customers from existing bills.`);
-      loadCustomers();
-    }
-    setSyncing(false);
-  };
 
   const handleDelete = (id, name) => {
     Alert.alert(
@@ -74,11 +69,24 @@ export default function CustomersScreen({ navigation }) {
           text: 'Delete', 
           style: 'destructive',
           onPress: async () => {
+            // Optimistic Update: Remove from UI immediately
+            const previousCustomers = [...customers];
+            const previousFiltered = [...filteredCustomers];
+            
+            const newCustomers = customers.filter(c => c.id !== id);
+            setCustomers(newCustomers);
+            setFilteredCustomers(filteredCustomers.filter(c => c.id !== id));
+
             const { error } = await deleteCustomer(id);
+            
             if (error) {
-              Alert.alert('Error', 'Failed to delete customer.');
+              // Rollback on error
+              setCustomers(previousCustomers);
+              setFilteredCustomers(previousFiltered);
+              Alert.alert('Error', error.message || 'Failed to delete customer.');
             } else {
-              loadCustomers();
+              // Optionally refresh in background to stay in sync
+              loadCustomers(true);
             }
           }
         }
@@ -105,7 +113,7 @@ export default function CustomersScreen({ navigation }) {
       Alert.alert('Error', 'Failed to update customer.');
     } else {
       setEditingCustomer(null);
-      loadCustomers();
+      loadCustomers(true); // Smooth refresh for updates too
     }
   };
 
@@ -141,13 +149,7 @@ export default function CustomersScreen({ navigation }) {
           <Ionicons name="arrow-back" size={24} color={COLORS.textDark} />
         </TouchableOpacity>
         <Text style={styles.title}>Customers</Text>
-        <TouchableOpacity onPress={handleSync} disabled={syncing} style={styles.syncBtn}>
-          {syncing ? (
-            <ActivityIndicator size="small" color={COLORS.primary} />
-          ) : (
-            <Ionicons name="sync-outline" size={24} color={COLORS.primary} />
-          )}
-        </TouchableOpacity>
+        <View style={{ width: 32 }} /> 
       </View>
 
       <View style={styles.searchContainer}>
@@ -158,7 +160,7 @@ export default function CustomersScreen({ navigation }) {
         />
       </View>
 
-      {loading ? (
+      {loading && customers.length === 0 ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={COLORS.primary} />
         </View>
@@ -168,6 +170,14 @@ export default function CustomersScreen({ navigation }) {
           keyExtractor={item => item.id}
           renderItem={renderCustomerItem}
           contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={onRefresh} 
+              tintColor={COLORS.primary}
+              colors={[COLORS.primary]}
+            />
+          }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="people-outline" size={64} color={COLORS.textLight} />
