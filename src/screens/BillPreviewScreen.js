@@ -27,16 +27,23 @@ export default function BillPreviewScreen({ navigation, route }) {
   const setIsSaved = useBillStore(s => s.setIsSaved);
   const loadBill = useBillStore(s => s.loadBill);
 
-  // ── Derived Data ──────────────────────────────────────────────────────────
+  // ── Derived Data (Frozen on Mount to prevent UI wipes when store is cleared) ──
   const isEditing = !!editingId;
   const isViewing = !!pastBill && !isEditing;
 
-  const billItems = isViewing ? (pastBill.bill_items || []) : storeItems;
-  const custName = isViewing ? pastBill.customer_name : storeCustomer;
-  const custPhone = isViewing ? pastBill.customer_phone : storePhone;
-  const billDiscount = isViewing ? (pastBill.discount || 0) : storeDiscount;
-  const subtotal = isViewing ? (pastBill.subtotal || pastBill.total_amount) : storeSubtotal;
-  const total = isViewing ? pastBill.total_amount : storeTotal;
+  const [frozenItems] = useState(isViewing ? (pastBill.bill_items || []) : storeItems);
+  const [frozenCustName] = useState(isViewing ? pastBill.customer_name : storeCustomer);
+  const [frozenCustPhone] = useState(isViewing ? pastBill.customer_phone : storePhone);
+  const [frozenDiscount] = useState(isViewing ? (pastBill.discount || 0) : storeDiscount);
+  const [frozenSubtotal] = useState(isViewing ? (pastBill.subtotal || pastBill.total_amount) : storeSubtotal);
+  const [frozenTotal] = useState(isViewing ? pastBill.total_amount : storeTotal);
+
+  const billItems = frozenItems;
+  const custName = frozenCustName;
+  const custPhone = frozenCustPhone;
+  const billDiscount = frozenDiscount;
+  const subtotal = frozenSubtotal;
+  const total = frozenTotal;
 
   // Still need a stable bill number for new bills
   const [sessionBillNo] = useState(() => generateBillNumber());
@@ -44,9 +51,14 @@ export default function BillPreviewScreen({ navigation, route }) {
 
   const totalSavings = useMemo(() => {
     return billItems.reduce((sum, i) => {
-      const mrp = i.product?.mrp || i.mrp || i.product?.wholesale_rate || i.rate || 0;
-      const rate = i.product?.wholesale_rate || i.rate || 0;
-      return sum + (mrp - rate) * i.quantity;
+      const mrp = Number(i.product?.mrp || i.mrp || 0);
+      const rate = Number(i.product?.wholesale_rate || i.rate || 0);
+      // Only count savings if MRP is mathematically strictly greater than the wholesale rate.
+      // This prevents negative savings when old database products have 0 MRP.
+      if (mrp > rate) {
+        return sum + (mrp - rate) * (i.quantity || 1);
+      }
+      return sum;
     }, 0);
   }, [billItems]);
 
@@ -220,7 +232,7 @@ export default function BillPreviewScreen({ navigation, route }) {
     } else {
       setSaved(true);
       setIsSaved(true);
-      clearBill(); // Clear global store for next bill
+      clearBill(); // Store can safely clear now; UI is frozen!
       return true;
     }
   };
@@ -232,12 +244,15 @@ export default function BillPreviewScreen({ navigation, route }) {
   };
 
   const handleExportPDF = async () => {
+    // ── Snapshot HTML BEFORE saving (performSave clears the store) ──
+    const html = buildHtml();
+
     // Auto-save if not already saved
     const isSavedNow = await performSave();
     if (!isSavedNow) return; // Don't proceed if save failed
 
     try {
-      const { uri } = await Print.printToFileAsync({ html: buildHtml() });
+      const { uri } = await Print.printToFileAsync({ html });
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
         await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Share Bill PDF' });
@@ -251,21 +266,28 @@ export default function BillPreviewScreen({ navigation, route }) {
 
 
   const handleWhatsAppShare = async () => {
-    // Auto-save if not already saved
-    const isSavedNow = await performSave();
-    if (!isSavedNow) return; // Don't proceed if save failed
+    // ── Snapshot all bill data BEFORE saving (performSave clears the store) ──
+    const snapItems = [...billItems];
+    const snapTotal = total;
+    const snapSavings = totalSavings;
+    const snapDiscount = billDiscount;
+    const snapPhone = custPhone;
 
-    if (!custPhone) {
+    if (!snapPhone) {
       Alert.alert('Phone Number Missing', 'Please provide a customer phone number to use direct WhatsApp sharing.');
       return;
     }
 
+    // Auto-save if not already saved
+    const isSavedNow = await performSave();
+    if (!isSavedNow) return; // Don't proceed if save failed
+
     // Clean phone number (remove non-digits, add country code if missing)
-    let cleaned = custPhone.replace(/\D/g, '');
+    let cleaned = snapPhone.replace(/\D/g, '');
     if (cleaned.length === 10) cleaned = '91' + cleaned; // Assume India if 10 digits
 
     // Build detailed items list in requested format
-    const itemsSection = billItems.map(item => {
+    const itemsSection = snapItems.map(item => {
       const name = (item.product?.name || item.product_name || '').trim();
       const qty = item.quantity;
       const rate = item.product?.wholesale_rate || item.rate || 0;
@@ -275,10 +297,20 @@ export default function BillPreviewScreen({ navigation, route }) {
       return `*${name}*\nQty: ${qty}   Mrp: ₹${mrp}   WS: ₹${rate}   Amt: ₹${amt.toLocaleString('en-IN')}`;
     }).join('\n\n');
 
+    const savingsSection = snapSavings > 0 
+      ? `\n🎉 *Wholesale Savings: ₹${snapSavings.toLocaleString('en-IN')}*`
+      : '';
+    
+    const discountSection = snapDiscount > 0
+      ? `\n*Additional Discount: -₹${Number(snapDiscount).toLocaleString('en-IN')}*`
+      : '';
+
     const message = ` *RAJESHWARI WHOLESALE* (7873574186)\n\n` +
       `${itemsSection}\n` +
-      `---------------------------------------------\n` +
-      `*Total Amount: ₹${total.toLocaleString('en-IN')}*\n` +
+      `---------------------------------------------` +
+      `${savingsSection}` +
+      `${discountSection}\n` +
+      `*Total Payable: ₹${snapTotal.toLocaleString('en-IN')}*\n` +
       `---------------------------------------------\n` +
       `Thank you for shopping!\n` +
       `Visit Again`;
@@ -295,6 +327,7 @@ export default function BillPreviewScreen({ navigation, route }) {
   };
 
   const handleNewBill = () => {
+    // Store was already cleared during save
     goToSelectProducts();
   };
 
