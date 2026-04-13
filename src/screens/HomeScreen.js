@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, StatusBar, RefreshControl, Platform,
+  StatusBar, RefreshControl, Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import GlassCard from '../components/GlassCard';
@@ -18,6 +19,18 @@ export default function HomeScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const itemCount = useBillStore(s => s.getItemCount());
   const isSaved = useBillStore(s => s.isSaved);
+  const draftsDict = useBillStore(s => s.drafts);
+  const switchDraft = useBillStore(s => s.switchDraft);
+  const deleteDraft = useBillStore(s => s.deleteDraft);
+  const createNewDraft = useBillStore(s => s.createNewDraft);
+
+  // Memoize drafts list to prevent infinite re-renders (getSnapshot error)
+  const draftList = React.useMemo(() => {
+    return Object.entries(draftsDict)
+      .map(([id, data]) => ({ id, ...data }))
+      .filter(d => d.items.length > 0)
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  }, [draftsDict]);
 
   const loadData = useCallback(async () => {
     // Non-blocking trigger to process any offline bills when returning to home screen
@@ -52,8 +65,8 @@ export default function HomeScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <ScrollView
         style={styles.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.white} />}
@@ -97,17 +110,9 @@ export default function HomeScreen({ navigation }) {
           {/* ── New Bill CTA ──────────────────────────────────── */}
           <TouchableOpacity
             onPress={() => {
-              useBillStore.getState().clearBill();
-              // Reset the NewBillTab stack to SelectProducts so nothing is hidden behind it
-              navigation.reset({
-                index: 0,
-                routes: [{
-                  name: 'NewBillTab',
-                  state: {
-                    routes: [{ name: 'SelectProducts' }],
-                  },
-                }],
-              });
+              createNewDraft();
+              // Reset the NewBillTab stack to SelectProducts
+              navigation.navigate('NewBillTab', { screen: 'SelectProducts' });
             }}
             style={styles.newBillBtn}
             activeOpacity={0.85}
@@ -152,17 +157,45 @@ export default function HomeScreen({ navigation }) {
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* ── Continue Bill (if cart not empty and not saved) ───────────── */}
-          {itemCount > 0 && !isSaved && (
-            <TouchableOpacity
-              onPress={() => navigation.navigate('NewBillTab', { screen: 'Bill' })}
-              style={styles.continueBillBtn}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="cart" size={20} color={COLORS.primary} />
-              <Text style={styles.continueText}>Finish Current Bill ({itemCount} items)</Text>
-              <Ionicons name="arrow-forward" size={16} color={COLORS.primary} />
-            </TouchableOpacity>
+          {/* ── Pending Drafts (Multi-Customer) ────────────────────────── */}
+          {draftList.length > 0 && (
+            <View style={{ marginBottom: SPACING.lg }}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Pending Drafts</Text>
+                <Text style={styles.draftCount}>{draftList.length} active</Text>
+              </View>
+              {draftList.map(draft => (
+                <View key={draft.id} style={styles.draftCardWrapper}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      switchDraft(draft.id);
+                      navigation.navigate('NewBillTab', { screen: 'Bill' });
+                    }}
+                    style={styles.draftCard}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.draftIcon}>
+                      <Ionicons name="cart" size={20} color={COLORS.primary} />
+                    </View>
+                    <View style={styles.draftInfo}>
+                      <Text style={styles.draftName}>{draft.customerName || `Draft #${draft.draftNumber || '?'}`}</Text>
+                      <Text style={styles.draftMeta}>
+                        {draft.items.reduce((sum, i) => sum + i.quantity, 0)} items • 
+                        ₹{draft.items.reduce((sum, i) => sum + i.product.wholesale_rate * i.quantity, 0).toLocaleString('en-IN')}
+                      </Text>
+                    </View>
+                    <Ionicons name="arrow-forward" size={16} color={COLORS.primary} />
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    onPress={() => deleteDraft(draft.id)}
+                    style={styles.draftDeleteBtn}
+                  >
+                    <Ionicons name="close-circle" size={20} color="#EF4444" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
           )}
 
           {/* ── Recent Bills ─────────────────────────────────── */}
@@ -302,4 +335,37 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', paddingVertical: 40 },
   emptyText: { fontSize: 18, color: COLORS.textMid, fontWeight: FONTS.weights.bold, marginTop: 12 },
   emptySub: { fontSize: 14, color: COLORS.textLight, marginTop: 4, textAlign: 'center' },
+  draftCount: { fontSize: 12, color: COLORS.textLight, fontWeight: FONTS.weights.medium },
+  draftCardWrapper: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#F3F4F6', 
+    borderRadius: 16, 
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: COLORS.primary + '15'
+  },
+  draftCard: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+  },
+  draftIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: COLORS.primary + '10',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  draftInfo: { flex: 1 },
+  draftName: { fontSize: 14, fontWeight: FONTS.weights.bold, color: COLORS.textDark },
+  draftMeta: { fontSize: 11, color: COLORS.textLight, marginTop: 2 },
+  draftDeleteBtn: {
+    padding: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  }
 });

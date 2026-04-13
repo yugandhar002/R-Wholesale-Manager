@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, StatusBar,
   TouchableOpacity, Modal, TextInput, Alert, KeyboardAvoidingView, Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,20 +13,33 @@ import GlassCard from '../components/GlassCard';
 import { getAllProducts, addProduct, updateProduct, deleteProduct } from '../services/productService';
 import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../theme';
 
-const EMPTY_FORM = { name: '', category: '', mrp: '', wholesale_rate: '', unit: 'Kg' };
+const EMPTY_FORM = { name: '', category: '', mrp: '', wholesale_rate: '', unit: 'Pc' };
 
 export default function ProductManagementScreen() {
   const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [sortBy, setSortBy] = useState('name'); // Default back to 'name' (A-Z)
+  const [sortBy, setSortBy] = useState('name');
 
   const fetchAll = useCallback(async () => {
-    const { data } = await getAllProducts();
-    if (data) setProducts(data);
+    setLoading(true);
+    // 1. Fire and forget cache read + network callback
+    const { data } = await getAllProducts(({ data: freshData }) => {
+      if (freshData) {
+        setProducts(freshData);
+        setLoading(false);
+      }
+    });
+
+    // 2. Fallback if cache is empty but network works
+    if (data) {
+      setProducts(data);
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { fetchAll(); }, []);
@@ -62,7 +76,7 @@ export default function ProductManagementScreen() {
       category: product.category || '',
       mrp: String(product.mrp || ''),
       wholesale_rate: String(product.wholesale_rate),
-      unit: product.unit || 'Kg',
+      unit: product.unit || 'Pc',
     });
     setEditingId(product.id);
     setModalVisible(true);
@@ -185,19 +199,26 @@ export default function ProductManagementScreen() {
         </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={sortedProducts}
-        renderItem={renderItem}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.list}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Ionicons name="cube-outline" size={48} color={COLORS.textLight} />
-            <Text style={styles.emptyText}>No products found</Text>
-          </View>
-        }
-      />
+      {loading && products.length === 0 ? (
+        <View style={styles.empty}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.emptyText}>Loading products...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={sortedProducts}
+          renderItem={renderItem}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Ionicons name="cube-outline" size={48} color={COLORS.textLight} />
+              <Text style={styles.emptyText}>No products found</Text>
+            </View>
+          }
+        />
+      )}
 
       {/* Add / Edit Modal */}
       <Modal visible={modalVisible} animationType="slide" transparent>
