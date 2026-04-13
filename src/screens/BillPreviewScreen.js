@@ -27,27 +27,44 @@ export default function BillPreviewScreen({ navigation, route }) {
   const setIsSaved = useBillStore(s => s.setIsSaved);
   const loadBill = useBillStore(s => s.loadBill);
 
-  // ── Derived Data (Frozen on Mount to prevent UI wipes when store is cleared) ──
   const isEditing = !!editingId;
   const isViewing = !!pastBill && !isEditing;
 
-  const [frozenItems] = useState(isViewing ? (pastBill.bill_items || []) : storeItems);
-  const [frozenCustName] = useState(isViewing ? pastBill.customer_name : storeCustomer);
-  const [frozenCustPhone] = useState(isViewing ? pastBill.customer_phone : storePhone);
-  const [frozenDiscount] = useState(isViewing ? (pastBill.discount || 0) : storeDiscount);
-  const [frozenSubtotal] = useState(isViewing ? (pastBill.subtotal || pastBill.total_amount) : storeSubtotal);
-  const [frozenTotal] = useState(isViewing ? pastBill.total_amount : storeTotal);
+  // ── Snapshot store data for new bills (freeze at first render or when pastBill changes) ──
+  // For past bills: derive directly from the pastBill object (recomputes when a different bill is passed).
+  // For new bills: snapshot store values once so they survive the post-save store.clearBill().
+  const pastBillId = pastBill?.id;
 
-  const billItems = frozenItems;
-  const custName = frozenCustName;
-  const custPhone = frozenCustPhone;
-  const billDiscount = frozenDiscount;
-  const subtotal = frozenSubtotal;
-  const total = frozenTotal;
+  const snapshotRef = React.useRef(null);
 
-  // Still need a stable bill number for new bills
-  const [sessionBillNo] = useState(() => generateBillNumber());
-  const billNo = isViewing ? pastBill.bill_number : (isEditing ? editingBillNumber : sessionBillNo);
+  // Capture a snapshot of store data for NEW bills (not past bills).
+  // This only runs once per new-bill session because pastBillId will be undefined/null.
+  if (!isViewing && snapshotRef.current === null) {
+    snapshotRef.current = {
+      items: storeItems,
+      custName: storeCustomer,
+      custPhone: storePhone,
+      discount: storeDiscount,
+      subtotal: storeSubtotal,
+      total: storeTotal,
+    };
+  }
+
+  // Reset snapshot when switching from a new-bill view to a past-bill view
+  if (isViewing) {
+    snapshotRef.current = null;
+  }
+
+  const billItems = isViewing ? (pastBill.bill_items || []) : (snapshotRef.current?.items || storeItems);
+  const custName = isViewing ? pastBill.customer_name : (snapshotRef.current?.custName || storeCustomer);
+  const custPhone = isViewing ? pastBill.customer_phone : (snapshotRef.current?.custPhone || storePhone);
+  const billDiscount = isViewing ? (pastBill.discount || 0) : (snapshotRef.current?.discount ?? storeDiscount);
+  const subtotal = isViewing ? (pastBill.subtotal || pastBill.total_amount) : (snapshotRef.current?.subtotal ?? storeSubtotal);
+  const total = isViewing ? pastBill.total_amount : (snapshotRef.current?.total ?? storeTotal);
+
+  // Stable bill number for new bills (regenerate only when there's no pastBill)
+  const sessionBillNoRef = React.useRef(pastBill ? null : generateBillNumber());
+  const billNo = isViewing ? pastBill.bill_number : (isEditing ? editingBillNumber : sessionBillNoRef.current);
 
   const totalSavings = useMemo(() => {
     return billItems.reduce((sum, i) => {
@@ -65,10 +82,13 @@ export default function BillPreviewScreen({ navigation, route }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(isViewing);
 
-  // Keep saved status in sync for past bills
+  // Reset saved/saving status when a different past bill is opened
   useEffect(() => {
-    if (isViewing) setSaved(true);
-  }, [isViewing]);
+    if (isViewing) {
+      setSaved(true);
+      setSaving(false);
+    }
+  }, [isViewing, pastBillId]);
 
   const dateStr = pastBill
     ? new Date(pastBill.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
