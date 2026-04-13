@@ -19,19 +19,19 @@ export default function ProductSelectionScreen({ navigation }) {
   const [category, setCategory] = useState('All');
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState(['All']);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const debounceRef = useRef(null);
   const addItem = useBillStore(s => s.addItem);
   const decrementItem = useBillStore(s => s.decrementItem);
   const updateQuantity = useBillStore(s => s.updateQuantity);
-  // REMOVED itemCount from here to prevent full-screen re-renders!
-
   const [isKeyboardVisible, setKeyboardVisible] = useState(false);
 
   // Load categories once
   useEffect(() => {
-    getCategories().then(({ data }) => { if (data) setCategories(data); });
+    getCategories(({ data }) => { 
+      if (data) setCategories(data); 
+    });
 
     const showSub = Keyboard.addListener(
       Platform.OS === 'android' ? 'keyboardDidShow' : 'keyboardWillShow',
@@ -48,30 +48,45 @@ export default function ProductSelectionScreen({ navigation }) {
   }, []);
 
   // Debounced search
-  const doSearch = useCallback(async (q, cat) => {
-    setLoading(true);
-    const { data } = await searchProducts(q, cat);
-    setProducts(data || []);
-    setLoading(false);
+  const doSearch = useCallback(async (q, cat, showLoader = false) => {
+    if (showLoader) setLoading(true);
+    
+    // Fire and forget cache read + network callback
+    const { data } = await searchProducts(q, cat, ({ data: freshData }) => {
+      if (freshData) {
+        setProducts(freshData);
+        setLoading(false); // Instantly turn off loading when cache hits
+      }
+    });
+
+    if (data) {
+      setProducts(data);
+      setLoading(false); // Turn off loading when network finishes if cache was empty
+    }
   }, []);
 
   const queryRef = useRef(query);
   const categoryRef = useRef(category);
+  const isFirstMount = useRef(true);
 
   useEffect(() => {
     queryRef.current = query;
     categoryRef.current = category;
     
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      return; // Let useFocusEffect handle the instant initial load to avoid double-fetching
+    }
+    
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => doSearch(query, category), 300);
+    debounceRef.current = setTimeout(() => doSearch(query, category, true), 300);
     return () => clearTimeout(debounceRef.current);
   }, [query, category, doSearch]);
 
   useFocusEffect(
     useCallback(() => {
-      // Refresh list whenever tab is focused to show new products added in other tabs
-      // Using refs to always fetch latest without re-triggering this effect on state changes
-      doSearch(queryRef.current, categoryRef.current);
+      // Refresh list whenever tab is focused silently (no loading spinner flash!)
+      doSearch(queryRef.current, categoryRef.current, false);
     }, [doSearch])
   );
 

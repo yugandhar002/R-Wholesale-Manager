@@ -1,18 +1,32 @@
 import { supabase, IS_MOCK } from '../lib/supabase';
+import { getCachedData, setCachedData, CACHE_KEYS } from './cacheService';
 
 const MOCK_CUSTOMERS = [
   { id: '1', name: 'John Doe', phone: '9876543210', total_bills: 5, total_spent: 15000, created_at: new Date().toISOString() },
   { id: '2', name: 'Jane Smith', phone: '8765432109', total_bills: 2, total_spent: 8000, created_at: new Date().toISOString() },
 ];
 
-export async function getCustomers() {
+export async function getCustomers(onFreshData = null) {
   if (IS_MOCK) {
     return { data: MOCK_CUSTOMERS, error: null };
   }
-  return await supabase
+
+  if (onFreshData) {
+    const cached = await getCachedData(CACHE_KEYS.CUSTOMERS);
+    if (cached) onFreshData({ data: cached });
+  }
+
+  const { data, error } = await supabase
     .from('customers')
     .select('*')
     .order('name', { ascending: true });
+
+  if (data) {
+    await setCachedData(CACHE_KEYS.CUSTOMERS, data);
+    if (onFreshData) onFreshData({ data });
+  }
+
+  return { data, error };
 }
 
 export async function updateCustomer(id, data) {
@@ -178,7 +192,7 @@ export async function ensureCustomer(name, phone) {
     if (insertError) throw insertError;
     return created;
   } catch (error) {
-    console.error('Error ensuring customer:', error);
+    console.warn('Error ensuring customer offline:', error.message);
     return null;
   }
 }

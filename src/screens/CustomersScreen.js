@@ -23,14 +23,24 @@ export default function CustomersScreen({ navigation }) {
   const [editPhone, setEditPhone] = useState('');
 
   const loadCustomers = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    const { data, error } = await getCustomers();
-    if (error) {
+    if (!silent) setLoading(true); // Always start loading, cache instant return will kill it
+
+    const { data, error } = await getCustomers(({ data: freshData }) => {
+      if (freshData) {
+        setCustomers(freshData);
+        setFilteredCustomers(freshData);
+        setLoading(false);
+        setRefreshing(false);
+      }
+    });
+
+    if (data) {
+      setCustomers(data);
+      setFilteredCustomers(data);
+    } else if (error) {
       console.error('Error fetching customers:', error);
-    } else {
-      setCustomers(data || []);
-      setFilteredCustomers(data || []);
     }
+    
     setLoading(false);
     setRefreshing(false);
   }, []);

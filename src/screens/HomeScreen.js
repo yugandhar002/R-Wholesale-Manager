@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import GlassCard from '../components/GlassCard';
 import GlassButton from '../components/GlassButton';
 import { getRecentBills, getSalesStats } from '../services/billService';
+import { processOfflineBills } from '../services/syncService';
 import { useBillStore } from '../store/billStore';
 import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../theme';
 
@@ -19,10 +20,21 @@ export default function HomeScreen({ navigation }) {
   const isSaved = useBillStore(s => s.isSaved);
 
   const loadData = useCallback(async () => {
+    // Non-blocking trigger to process any offline bills when returning to home screen
+    processOfflineBills().catch(err => console.error('Sync error:', err));
+
+    // Fire the queries. They will call our callbacks with cached data instantly,
+    // and then resolve with the network data.
     const [statsRes, billsRes] = await Promise.all([
-      getSalesStats(),
-      getRecentBills(),
+      getSalesStats(({ data: freshStats }) => {
+        if (freshStats) setStats(freshStats);
+      }),
+      getRecentBills(10, ({ data: freshBills }) => {
+        if (freshBills) setRecentBills(freshBills);
+      })
     ]);
+    
+    // In case the callbacks don't cover it or we just want to ensure final assignment
     if (statsRes.data) setStats(statsRes.data);
     if (billsRes.data) setRecentBills(billsRes.data);
   }, []);

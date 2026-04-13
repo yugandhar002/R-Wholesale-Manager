@@ -1,5 +1,6 @@
 import { supabase, IS_MOCK } from '../lib/supabase';
 import { ensureCustomer } from './customerService';
+import { getCachedData, setCachedData, CACHE_KEYS, pushToOfflineQueue } from './cacheService';
 
 const getLocalDateString = (date) => {
   const d = new Date(date);
@@ -74,7 +75,42 @@ export async function saveBill({ customerName, customerPhone, items, subtotal, d
     .select('id')
     .single();
 
-  if (billError) return { data: null, error: billError };
+  if (billError) {
+    const isNetworkError = billError.message?.toLowerCase().includes('fetch') || 
+                           billError.message?.toLowerCase().includes('network') ||
+                           billError.code === 'FetchError';
+                           
+    if (isNetworkError) {
+      console.log('Network error detected. Saving to offline queue.');
+      // Create a fake UUID for local UI rendering (starts with offline_ to clearly distinguish)
+      const fakeId = `offline_${Date.now()}`;
+      
+      const offlineBill = {
+        id: fakeId,
+        customer_name: cleanName,
+        customer_phone: cleanPhone,
+        customer_id: customer?.id || null,
+        bill_number: billNumber,
+        subtotal,
+        discount,
+        total_amount: total,
+         // the UI needs created_at
+        created_at: new Date().toISOString(),
+        bill_items: itemsToSave
+      };
+      
+      // Push to Background Sync Queue
+      await pushToOfflineQueue(CACHE_KEYS.OFFLINE_BILLS, offlineBill);
+      
+      // Also inject into RECENT_BILLS cache so the Home Screen sees it instantly!
+      const existingRecent = await getCachedData(CACHE_KEYS.RECENT_BILLS) || [];
+      await setCachedData(CACHE_KEYS.RECENT_BILLS, [offlineBill, ...existingRecent]);
+      
+      return { data: offlineBill, error: null };
+    }
+    
+    return { data: null, error: billError };
+  }
 
   // Attach bill_id to pre-mapped items
   const lineItems = itemsToSave.map(item => ({ ...item, bill_id: bill.id }));
@@ -83,6 +119,11 @@ export async function saveBill({ customerName, customerPhone, items, subtotal, d
     .from('bill_items')
     .insert(lineItems);
   if (itemsError) return { data: null, error: itemsError };
+
+  // Clear caches so next load instantly fetches fresh data instead of stale cache
+  await setCachedData(CACHE_KEYS.RECENT_BILLS, null);
+  await setCachedData(CACHE_KEYS.SALES_STATS, null);
+  await setCachedData(CACHE_KEYS.SALES_HISTORY, null);
 
   return { data: bill, error: null };
 }
@@ -168,18 +209,31 @@ export async function updateBill({ billId, customerName, customerPhone, items, s
   }
 }
 
-export async function getRecentBills(limit = 10) {
+export async function getRecentBills(limit = 10, onFreshData = null) {
   if (IS_MOCK) {
     return { data: MOCK_BILLS.slice(0, limit), error: null };
   }
-  return await supabase
+
+  if (onFreshData) {
+    const cached = await getCachedData(CACHE_KEYS.RECENT_BILLS);
+    if (cached) onFreshData({ data: cached });
+  }
+
+  const { data, error } = await supabase
     .from('bills')
     .select('*, bill_items(*)')
     .order('created_at', { ascending: false })
     .limit(limit);
+
+  if (data) {
+    await setCachedData(CACHE_KEYS.RECENT_BILLS, data);
+    if (onFreshData) onFreshData({ data });
+  }
+
+  return { data, error };
 }
 
-export async function getSalesStats() {
+export async function getSalesStats(onFreshData = null) {
   if (IS_MOCK) {
     const today = getLocalDateString(new Date());
     const todayBills = MOCK_BILLS.filter(b => getLocalDateString(b.created_at) === today);
@@ -192,6 +246,11 @@ export async function getSalesStats() {
       },
       error: null,
     };
+  }
+
+  if (onFreshData) {
+    const cached = await getCachedData(CACHE_KEYS.SALES_STATS);
+    if (cached) onFreshData({ data: cached });
   }
 
   try {
@@ -214,22 +273,27 @@ export async function getSalesStats() {
     if (countError) throw countError;
 
     const todaySales = todayData.reduce((sum, b) => sum + (b.total_amount || 0), 0);
+    
+    const stats = {
+      todaySales,
+      billsToday: todayData.length,
+      recentBillsCount: count || 0,
+    };
+
+    await setCachedData(CACHE_KEYS.SALES_STATS, stats);
+    if (onFreshData) onFreshData({ data: stats });
 
     return {
-      data: {
-        todaySales,
-        billsToday: todayData.length,
-        recentBillsCount: count || 0,
-      },
+      data: stats,
       error: null,
     };
   } catch (error) {
-    console.error('Error fetching sales stats:', error);
+    console.warn('Error fetching sales stats offline. Using cache.', error.message);
     return { data: { todaySales: 0, billsToday: 0, recentBillsCount: 0 }, error };
   }
 }
 
-export async function getDailySalesHistory() {
+export async function getDailySalesHistory(onFreshData = null) {
   if (IS_MOCK) {
     // Group MOCK_BILLS by day using local date
     const history = MOCK_BILLS.reduce((acc, bill) => {
@@ -247,6 +311,11 @@ export async function getDailySalesHistory() {
       data: Object.values(history).sort((a, b) => b.date.localeCompare(a.date)), 
       error: null 
     };
+  }
+
+  if (onFreshData) {
+    const cached = await getCachedData(CACHE_KEYS.SALES_HISTORY);
+    if (cached) onFreshData({ data: cached });
   }
 
   try {
@@ -268,12 +337,16 @@ export async function getDailySalesHistory() {
       return acc;
     }, {});
 
+    const historyArray = Object.values(history);
+    await setCachedData(CACHE_KEYS.SALES_HISTORY, historyArray);
+    if (onFreshData) onFreshData({ data: historyArray });
+
     return { 
-      data: Object.values(history), 
+      data: historyArray, 
       error: null 
     };
   } catch (error) {
-    console.error('Error fetching sales history:', error);
+    console.warn('Error fetching sales history offline. Using cache.', error.message);
     return { data: [], error };
   }
 }

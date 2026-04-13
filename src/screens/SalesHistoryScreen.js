@@ -15,7 +15,11 @@ export default function SalesHistoryScreen({ navigation }) {
   const [expandedDate, setExpandedDate] = useState(null);
 
   const loadData = useCallback(async () => {
-    const { data } = await getDailySalesHistory();
+    const { data } = await getDailySalesHistory(({ data: freshData }) => {
+      if (freshData) {
+        setHistory(freshData);
+      }
+    });
     if (data) setHistory(data);
   }, []);
 

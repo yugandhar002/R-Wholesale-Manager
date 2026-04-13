@@ -1,4 +1,5 @@
 import { supabase, IS_MOCK } from '../lib/supabase';
+import { getCachedData, setCachedData, CACHE_KEYS } from './cacheService';
 
 // ─── MOCK DATA ────────────────────────────────────────────────────────────────
 const MOCK_PRODUCTS = [
@@ -28,7 +29,7 @@ const MOCK_CATEGORIES = ['All', 'Grains', 'Pulses', 'Oils', 'Essentials', 'Spice
 
 // ─── SERVICE FUNCTIONS ────────────────────────────────────────────────────────
 
-export async function searchProducts(query = '', category = 'All') {
+export async function searchProducts(query = '', category = 'All', onFreshData = null) {
   if (IS_MOCK) {
     let results = [...MOCK_PRODUCTS];
     if (category && category !== 'All') {
@@ -37,13 +38,23 @@ export async function searchProducts(query = '', category = 'All') {
     if (query.trim()) {
       const q = query.toLowerCase();
       results = results.filter(p => p.name.toLowerCase().includes(q));
-      // Sort by MRP Ascending ONLY when searching
       results.sort((a, b) => (a.mrp || 0) - (b.mrp || 0));
     } else {
-      // Sort by Name Ascending when NOT searching
       results.sort((a, b) => a.name.localeCompare(b.name));
     }
     return { data: results, error: null };
+  }
+
+  // Optional fast read for non-query searches
+  if (!query.trim() && onFreshData) {
+    const cached = await getCachedData(CACHE_KEYS.PRODUCTS);
+    if (cached) {
+      let results = cached;
+      if (category && category !== 'All') {
+         results = results.filter(p => p.category === category);
+      }
+      onFreshData({ data: results });
+    }
   }
 
   let q = supabase.from('products').select('*');
@@ -53,11 +64,23 @@ export async function searchProducts(query = '', category = 'All') {
     q = q.order('name');
   }
   if (category && category !== 'All') q = q.eq('category', category);
-  return await q;
+  
+  const { data, error } = await q;
+  // Background cache update if it was a generic "all" fetch
+  if (!query.trim() && category === 'All' && data) {
+    setCachedData(CACHE_KEYS.PRODUCTS, data);
+  }
+  
+  return { data, error };
 }
 
-export async function getCategories() {
+export async function getCategories(onFreshData) {
   if (IS_MOCK) return { data: MOCK_CATEGORIES, error: null };
+
+  if (onFreshData) {
+    const cached = await getCachedData(CACHE_KEYS.CATEGORIES);
+    if (cached) onFreshData({ data: cached });
+  }
 
   const { data, error } = await supabase
     .from('products')
@@ -66,14 +89,32 @@ export async function getCategories() {
 
   if (error) return { data: [], error };
   const unique = ['All', ...new Set(data.map(r => r.category).filter(Boolean))];
+  
+  setCachedData(CACHE_KEYS.CATEGORIES, unique);
   return { data: unique, error: null };
 }
 
-export async function getAllProducts() {
+export async function getAllProducts(onFreshData) {
   if (IS_MOCK) {
     return { data: [...MOCK_PRODUCTS].sort((a, b) => a.name.localeCompare(b.name)), error: null };
   }
-  return await supabase.from('products').select('*').order('name');
+
+  // 1. FAST RENDER from cache
+  if (onFreshData) {
+    const cached = await getCachedData(CACHE_KEYS.PRODUCTS);
+    if (cached) onFreshData({ data: cached });
+  }
+
+  // 2. NETWORK FETCH
+  const { data, error } = await supabase.from('products').select('*').order('name');
+  
+  // 3. BACKGROUND UPDATE
+  if (data) {
+    await setCachedData(CACHE_KEYS.PRODUCTS, data);
+    if (onFreshData) onFreshData({ data });
+  }
+  
+  return { data, error };
 }
 
 export async function addProduct(product) {
@@ -82,7 +123,13 @@ export async function addProduct(product) {
     MOCK_PRODUCTS.push(newProduct);
     return { data: newProduct, error: null };
   }
-  return await supabase.from('products').insert([product]).select().single();
+  const result = await supabase.from('products').insert([product]).select().single();
+  // Clear cache to force refresh on next load
+  if (!result.error) {
+    // Ideally we would prepend to cache, but simple approach is to trigger a refetch
+    // For now we just let the next network call heal the cache
+  }
+  return result;
 }
 
 export async function updateProduct(id, updates) {

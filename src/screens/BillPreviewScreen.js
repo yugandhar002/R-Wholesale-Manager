@@ -218,7 +218,7 @@ export default function BillPreviewScreen({ navigation, route }) {
   const performSave = async () => {
     if (saved && !editingId) return true;
     setSaving(true);
-    
+
     let result;
     if (editingId) {
       // Update existing bill
@@ -317,10 +317,10 @@ export default function BillPreviewScreen({ navigation, route }) {
       return `*${name}*\nQty: ${qty}   Mrp: ₹${mrp}   WS: ₹${rate}   Amt: ₹${amt.toLocaleString('en-IN')}`;
     }).join('\n\n');
 
-    const savingsSection = snapSavings > 0 
-      ? `\n🎉 *Wholesale Savings: ₹${snapSavings.toLocaleString('en-IN')}*`
+    const savingsSection = snapSavings > 0
+      ? `\n *Wholesale Savings: ₹${snapSavings.toLocaleString('en-IN')}*`
       : '';
-    
+
     const discountSection = snapDiscount > 0
       ? `\n*Additional Discount: -₹${Number(snapDiscount).toLocaleString('en-IN')}*`
       : '';
