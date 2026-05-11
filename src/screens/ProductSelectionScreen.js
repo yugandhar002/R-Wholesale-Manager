@@ -22,12 +22,13 @@ export default function ProductSelectionScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
 
   const debounceRef = useRef(null);
+  const categoryDebounceRef = useRef(null);
   const addItem = useBillStore(s => s.addItem);
   const decrementItem = useBillStore(s => s.decrementItem);
   const updateQuantity = useBillStore(s => s.updateQuantity);
   const [isKeyboardVisible, setKeyboardVisible] = useState(false);
 
-  // Load categories once
+  // Load all categories on mount + keyboard listeners
   useEffect(() => {
     getCategories(({ data }) => { 
       if (data) setCategories(data); 
@@ -46,6 +47,29 @@ export default function ProductSelectionScreen({ navigation }) {
       hideSub.remove();
     };
   }, []);
+
+  // Update categories when search query changes
+  // Shows only categories that have products matching the search
+  useEffect(() => {
+    clearTimeout(categoryDebounceRef.current);
+    categoryDebounceRef.current = setTimeout(async () => {
+      const { data } = await getCategories(({ data: cachedCats }) => {
+        if (cachedCats) setCategories(cachedCats);
+      }, query);
+      if (data) setCategories(data);
+    }, 300);
+    return () => clearTimeout(categoryDebounceRef.current);
+  }, [query]);
+
+  // Reset selected category back to 'All' when query changes
+  // so user doesn't get stuck on a category that has no matches for the new query
+  const prevQueryRef = useRef(query);
+  useEffect(() => {
+    if (prevQueryRef.current !== query) {
+      setCategory('All');
+      prevQueryRef.current = query;
+    }
+  }, [query]);
 
   // Debounced search
   const doSearch = useCallback(async (q, cat, showLoader = false) => {
