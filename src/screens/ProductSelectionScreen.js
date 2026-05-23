@@ -191,7 +191,13 @@ export default function ProductSelectionScreen({ navigation }) {
                 key={cat}
                 label={cat}
                 active={category === cat}
-                onPress={() => setCategory(cat)}
+                onPress={() => {
+                  if (cat === 'All') {
+                    setCategory('All');
+                  } else {
+                    setCategory(category === cat ? 'All' : cat);
+                  }
+                }}
               />
             ))}
           </ScrollView>

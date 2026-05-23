@@ -459,7 +459,7 @@ export default function BillPreviewScreen({ navigation, route }) {
                       {mrp > rate && (
                         <>
                           <View style={styles.metaDot} />
-                          <Text style={[styles.itemDetail, { textDecorationLine: 'line-through' }]}>
+                          <Text style={styles.itemDetail}>
                             ₹{mrp}
                           </Text>
                         </>

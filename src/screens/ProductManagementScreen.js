@@ -176,21 +176,21 @@ export default function ProductManagementScreen() {
 
       <View style={styles.sortRow}>
         <Text style={styles.sortLabel}>Sort by:</Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.sortChip, sortBy === 'mrp' && styles.sortChipActive]}
           onPress={() => setSortBy('mrp')}
         >
           <Ionicons name="pricetag" size={12} color={sortBy === 'mrp' ? COLORS.white : COLORS.primary} />
           <Text style={[styles.sortChipText, sortBy === 'mrp' && styles.sortChipTextActive]}>Price</Text>
         </TouchableOpacity>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.sortChip, sortBy === 'name' && styles.sortChipActive]}
           onPress={() => setSortBy('name')}
         >
           <Ionicons name="text" size={12} color={sortBy === 'name' ? COLORS.white : COLORS.primary} />
           <Text style={[styles.sortChipText, sortBy === 'name' && styles.sortChipTextActive]}>A-Z</Text>
         </TouchableOpacity>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.sortChip, sortBy === 'recent' && styles.sortChipActive]}
           onPress={() => setSortBy('recent')}
         >
